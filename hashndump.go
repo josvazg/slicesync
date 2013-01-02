@@ -3,8 +3,15 @@ package slicesync
 import (
 	"crypto/sha1"
 	"fmt"
+	"net/http"
 	"io"
 	"os"
+	"path"
+	"strconv"
+)
+
+const (
+	AUTOSIZE=0
 )
 
 type LimitedReadCloser struct {
@@ -16,41 +23,41 @@ func (l *LimitedReadCloser) Close() error {
 }
 
 // Hash returns the Hash (sha-1) for a file slice or the full file
-func Hash(filename string, start, len int64) (string, error) {
+func Hash(filename string, offset, size int64) (string, error) {
 	file, err := os.Open(filename) // For read access.
 	if err != nil {
 		return "", err
 	}
 	defer file.Close()
-	len, err = sliceFile(file, start, len)
+	size, err = sliceFile(file, offset, size)
 	if err != nil {
 		return "", err
 	}
 	h := sha1.New()
-	io.CopyN(h, file, len)
+	io.CopyN(h, file, size)
 	return "sha1-" + fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 // Dump opens a file to read just a slice of it
-func Dump(filename string, start, len int64) (io.ReadCloser, error) {
+func Dump(filename string, offset, size int64) (io.ReadCloser, int64, error) {
 	file, err := os.Open(filename) // For read access.
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	len, err = sliceFile(file, start, len)
+	size, err = sliceFile(file, offset, size)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return &LimitedReadCloser{io.LimitedReader{file, len}}, nil
+	return &LimitedReadCloser{io.LimitedReader{file, size}}, size, nil
 }
 
-// sliceFile positions to the start pos of file and prepares to read up to len bytes of it.
-// It returns the proper length to read before the end of the file is reached: 
-// When input len is 0 or len would read past the file's end, it returns the remaining length 
+// sliceFile positions to the offset pos of file and prepares to read up to size bytes of it.
+// It returns the proper size to read before the end of the file is reached: 
+// When input size is 0 or size would read past the file's end, it returns the remaining length 
 // to read before EOF
-func sliceFile(file *os.File, start, len int64) (int64, error) {
-	if start > 0 {
-		_, err := file.Seek(start, os.SEEK_SET)
+func sliceFile(file *os.File, offset, size int64) (int64, error) {
+	if offset > 0 {
+		_, err := file.Seek(offset, os.SEEK_SET)
 		if err != nil {
 			return 0, err
 		}
@@ -60,8 +67,98 @@ func sliceFile(file *os.File, start, len int64) (int64, error) {
 		return 0, err
 	}
 	max := fi.Size()
-	if len == 0 || (start+len) > max {
-		len = max - start
+	if size == 0 || (offset+size) > max {
+		size = max - offset
 	}
-	return len, nil
+	return size, nil
+}
+
+// HashNDumpServer prepares an HTTP Server to Hash and Dump slices of files remotely
+func SetupHashNDump() {
+	http.HandleFunc("/hash", hash)
+	http.HandleFunc("/dump", dump)
+}
+
+// HashNDumpServer prepares an HTTP Server to Hash and Dump slices of files remotely
+func HashNDumpServer(port int) {
+	SetupHashNDump()
+	http.ListenAndServe(fmt.Sprintf(":%v",port), nil)
+}
+
+// hash is a http request handler to return hashes of file slices
+func hash(w http.ResponseWriter, r *http.Request) {
+	filename,offset,size,ok:=readArgs(w,r)
+	if !ok {
+		return
+	}
+	hsh,err:=Hash(filename,offset,size)
+	if handleError(w,r,err) {
+		return
+	}
+	io.WriteString(w,hsh)
+}
+
+// dump is a http request handler to return a file slice
+func dump(w http.ResponseWriter, r *http.Request) {
+	filename,offset,size,ok:=readArgs(w,r)
+	if !ok {
+		return
+	}
+	sliced:=!(offset==0 && size==0)
+	slice,size,err:=Dump(filename,offset,size)
+	if handleError(w,r,err) {
+		return
+	}	
+	w.Header().Set("Content-Length",fmt.Sprintf("%v",size))
+	w.Header().Set("Content-Type","application/octet-stream")
+	downfilename:=filename
+	if sliced {
+		downfilename=fmt.Sprintf("%s(%v-%v)%s",noExt(filename),offset,size,path.Ext(filename))
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"",downfilename))
+	io.Copy(w,slice)
+}
+
+// noExt returns the name without the extension
+func noExt(filename string) string {
+	return filename[0:len(filename)-len(path.Ext(filename))]
+}
+
+// readArgs reads request args for hash & dump
+func readArgs(w http.ResponseWriter, r *http.Request) (f string, o, s int64, ok bool) {
+filename:=r.FormValue("filename")
+	if filename=="" {
+		handleError(w,r,fmt.Errorf("Expected filename argument!"))
+		return "",0,0,false
+	}
+	offset:=r.FormValue("offset")
+	size:=r.FormValue("size")
+	o=0
+	s=AUTOSIZE
+	if offset!="" {
+		i,err:=strconv.ParseInt(offset,10,64)
+		if handleError(w,r,err) {
+			return "",0,0,false
+		}
+		o=i
+	}
+	if size!="" {
+		i,err:=strconv.ParseInt(size,10,64)
+		if handleError(w,r,err) {
+			return "",0,0,false
+		}
+		s=i
+	}
+	return filename,o,s,true
+}
+
+// handleError displays err (if not nil) on Stderr and (if possible) displays a web error page
+// it also returns true if the error was found and handled and false if err was nil
+func handleError(w http.ResponseWriter, r *http.Request, err error) bool {
+	if err!=nil {
+		fmt.Fprintln(os.Stderr,err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return true
+	}
+	return false
 }
