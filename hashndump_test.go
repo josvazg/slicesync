@@ -22,7 +22,7 @@ func TestSlices(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		dmp, err := slicesync.Dump(tests[i].filename, tests[i].start, tests[i].len)
+		dmp, _, err := slicesync.Dump(tests[i].filename, tests[i].start, tests[i].len)
 		if err != nil {
 			t.Fatal(err)
 		}

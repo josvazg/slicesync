@@ -75,9 +75,9 @@ func sliceFile(file *os.File, offset, size int64) (int64, error) {
 
 // HashNDumpServer prepares an HTTP Server to Hash and Dump slices of files remotely
 func SetupHashNDump() {
-	http.HandleFunc("/hash", hash)
-	http.HandleFunc("/dump", dump)
-	http.HandleFunc("/size", size)
+	http.HandleFunc("/", dump)
+	http.Handle("/hash/", http.StripPrefix("/hash/",http.HandlerFunc(hash)))
+	http.Handle("/size/", http.StripPrefix("/size/", http.HandlerFunc(size)))
 }
 
 // HashNDumpServer prepares an HTTP Server to Hash and Dump slices of files remotely
@@ -134,7 +134,7 @@ func size(w http.ResponseWriter, r *http.Request) {
 	if handleError(w, r, err) {
 		return
 	}
-	io.WriteString(w,fmt.Sprintf("%v",fi.Size()))
+	io.WriteString(w, fmt.Sprintf("%v", fi.Size()))
 }
 
 // noExt returns the name without the extension
@@ -144,7 +144,8 @@ func noExt(filename string) string {
 
 // readArgs reads request args for hash & dump
 func readArgs(w http.ResponseWriter, r *http.Request) (f string, o, s int64, e error) {
-	filename := r.FormValue("filename")
+	filename := r.URL.Path
+	fmt.Printf("filename=%s\n", filename)
 	if filename == "" {
 		return "", 0, 0, fmt.Errorf("Expected filename argument!")
 	}
@@ -154,14 +155,14 @@ func readArgs(w http.ResponseWriter, r *http.Request) (f string, o, s int64, e e
 	s = AUTOSIZE
 	if offset != "" {
 		i, err := strconv.ParseInt(offset, 10, 64)
-		if err!=nil {
+		if err != nil {
 			return "", 0, 0, err
 		}
 		o = i
 	}
 	if size != "" {
 		i, err := strconv.ParseInt(size, 10, 64)
-		if err!=nil {
+		if err != nil {
 			return "", 0, 0, err
 		}
 		s = i
