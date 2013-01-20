@@ -1,35 +1,47 @@
 package slicesync_test
 
 import (
-	"fmt"
+	"bytes"
 	"github.com/josvazg/slicesync"
 	"io"
-	"os"
 	"testing"
 )
 
 var tests = []struct {
 	filename   string
 	start, len int64
-}{{"hashndump.go", 0, 0},
-	{"hashndump.go", 0, 10},
-	{"hashndump.go", 10, 10},
+	expected   string
+	goodhash   string
+}{ {"testfile.txt", 0, 0, `AAAAAAAAA
+BBBBBBBBB
+CCCCCCCCC
+DDDDDDDDD
+EEEEEEEEE
+AAAAAAAAA
+`, "sha1-6e1eb4d4daf850c250bdc9a16669c7f66915f842"},
+	{"testfile.txt", 0, 10, "AAAAAAAAA\n", "sha1-bf6492720d4179ce7d10d82f80b6ec61d871177d"},
+	{"testfile.txt", 10, 10, "BBBBBBBBB\n", "sha1-4c2589d96f40deefe9b6faa049e96488361fad9d"},
 }
 
 func TestSlices(t *testing.T) {
-	for i := 0; i < len(tests); i++ {
-		hsh, err := slicesync.Hash(tests[i].filename, tests[i].start, tests[i].len)
+	for i, test := range tests {
+		dmp, _, err := slicesync.Dump(test.filename, test.start, test.len)
 		if err != nil {
 			t.Fatal(err)
 		}
-		dmp, _, err := slicesync.Dump(tests[i].filename, tests[i].start, tests[i].len)
+		buf := bytes.NewBufferString("")
+		io.Copy(buf, dmp)
+		str := buf.String()
+		if str != test.expected {
+			t.Fatalf("Test #%d failed: expected '%s' but got '%s'\n%v\n",
+				i, test.expected, str, test)
+		}
+		hsh, err := slicesync.Hash(test.filename, test.start, test.len)
 		if err != nil {
 			t.Fatal(err)
 		}
-		fmt.Println("\n==========================================")
-		io.Copy(os.Stdout, dmp)
-		fmt.Println("\n==========================================")
-		fmt.Printf("\nHash for %s[%d:%d] = %s\n",
-			tests[i].filename, tests[i].start, tests[i].len, hsh)
+		if hsh != test.goodhash {
+			t.Fatalf("Test #%d failed: expected SHA1 hash %s but got %s\n", i, test.goodhash, hsh)
+		}
 	}
 }

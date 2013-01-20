@@ -76,6 +76,7 @@ func sliceFile(file *os.File, offset, size int64) (int64, error) {
 // HashNDumpServer prepares an HTTP Server to Hash and Dump slices of files remotely
 func SetupHashNDump() {
 	http.HandleFunc("/", dump)
+	http.HandleFunc("/favicon.ico",http.NotFound)
 	http.Handle("/hash/", http.StripPrefix("/hash/",http.HandlerFunc(hash)))
 	http.Handle("/size/", http.StripPrefix("/size/", http.HandlerFunc(size)))
 }
@@ -134,7 +135,7 @@ func size(w http.ResponseWriter, r *http.Request) {
 	if handleError(w, r, err) {
 		return
 	}
-	io.WriteString(w, fmt.Sprintf("%v", fi.Size()))
+	io.WriteString(w, fmt.Sprintf("%v\n", fi.Size()))
 }
 
 // noExt returns the name without the extension
@@ -145,7 +146,9 @@ func noExt(filename string) string {
 // readArgs reads request args for hash & dump
 func readArgs(w http.ResponseWriter, r *http.Request) (f string, o, s int64, e error) {
 	filename := r.URL.Path
-	fmt.Printf("filename=%s\n", filename)
+	if filename[0]=='/' {
+		filename=filename[1:]
+	}
 	if filename == "" {
 		return "", 0, 0, fmt.Errorf("Expected filename argument!")
 	}
