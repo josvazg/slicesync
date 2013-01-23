@@ -17,10 +17,10 @@ type LimitedReadCloser struct {
 
 // FileInfo info to be sent back
 type FileInfo struct {
-	size   int64
-	offset int64
-	slice  int64
-	hash   string
+	Size   int64
+	Offset int64
+	Slice  int64
+	Hash   string
 }
 
 func (l *LimitedReadCloser) Close() error {
