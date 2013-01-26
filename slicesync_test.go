@@ -31,6 +31,9 @@ func TestSync(t *testing.T) {
 	go slicesync.HashNDumpServer(port)
 	for _, st := range synctests {
 		writeFile(t, st.filename, st.content)
-		slicesync.Slicesync(server, filename, st.filename, "", slice)
+		err := slicesync.Slicesync(server, filename, st.filename, "", slice)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }

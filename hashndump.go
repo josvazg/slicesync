@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	AUTOSIZE = 0
+	AUTOSIZE  = 0
 )
 
 type LimitedReadCloser struct {
@@ -28,6 +28,7 @@ func (l *LimitedReadCloser) Close() error {
 }
 
 // Hash returns the Hash (sha-1) for a file slice or the full file
+// slice size of 0 means "AUTOSIZE or rest of the file"
 func Hash(filename string, offset, slice int64) (*FileInfo, error) {
 	file, err := os.Open(filename) // For read access.
 	if err != nil {
@@ -80,7 +81,7 @@ func sliceFile(file *os.File, offset, slice int64) (int64, error) {
 		return 0, err
 	}
 	max := fi.Size()
-	if slice == 0 || (offset+slice) > max {
+	if slice == AUTOSIZE || (offset+slice) > max {
 		slice = max - offset
 	}
 	return slice, nil
