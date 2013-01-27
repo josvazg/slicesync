@@ -113,7 +113,7 @@ func RHash(server, filename string, pos, slice int64) (*FileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("%s\n", string(resp))
+	//fmt.Printf("%s\n", string(resp))
 	fi := FileInfo{}
 	err = json.Unmarshal(resp, &fi)
 	if err != nil {
@@ -129,7 +129,7 @@ func RDump(server, filename string, pos, slice int64) (io.ReadCloser, error) {
 
 // ROpen opens a remote URL incoming stream
 func ROpen(url string) (io.ReadCloser, error) {
-	fmt.Printf("ROpen %s\n", url)
+	//fmt.Printf("ROpen %s\n", url)
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
@@ -142,7 +142,7 @@ func ROpen(url string) (io.ReadCloser, error) {
 
 // RRead opens (ROpen) a remote URL and reads the body contents into a string
 func RRead(url string) ([]byte, error) {
-	fmt.Printf("RRead %s\n", url)
+	//fmt.Printf("RRead %s\n", url)
 	r, err := ROpen(url)
 	if err != nil {
 		return nil, err
