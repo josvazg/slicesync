@@ -35,10 +35,10 @@ func main() {
     	return
     }
 	fmt.Printf("slicesync\nhttp://%s/dump/%s -> %s %s\nslice=%v\n", server, filename, d, a, slice)
-	err=slicesync.Slicesync(server,filename,dest,alike,slice)
+	downloads,err:=slicesync.Slicesync(server,filename,dest,alike,slice)
 	if err!=nil {
     	fmt.Fprint(os.Stderr, err.Error()+"\n")
     	return
     }
-    fmt.Printf("Done")
+    fmt.Printf("Done with %ddownloads\n",downloads)
 }
