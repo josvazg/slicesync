@@ -36,8 +36,8 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Stats, e
 	if dst == "" {
 		dst = filename
 	}
-	if alike != "" && exists(alike) {
-		return nil, fmt.Errorf("alike file '%s' does not exist!")
+	if alike != "" && !exists(alike) {
+		return nil, fmt.Errorf("alike file '%s' does not exist!",alike)
 	}
 	if alike == "" {
 		alike = dst
@@ -109,7 +109,7 @@ func (s *sliceSync) sync() error {
 // syncSlice does the synchronization of a remote filename slice [pos:pos+slice]
 func (s *sliceSync) syncSlice(pos int64) (bool, int64, error) {
 	downloaded := false
-	remote, local, err := s.hashes(pos, s.slice)
+	remote, local, err := s.hashes(pos, s.slice, s.alike)
 	if err != nil {
 		return false, 0, err
 	}
@@ -143,7 +143,7 @@ func (s *sliceSync) syncSlice(pos int64) (bool, int64, error) {
 
 // check compares remote and local hash after a sync and returns error if they don't match
 func (s *sliceSync) check() error {
-	remote, local, err := s.hashes(0, AUTOSIZE)
+	remote, local, err := s.hashes(0, s.Size, s.dest)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func (s *sliceSync) check() error {
 
 // hashes returns both the remote and local hashs
 // the size is updated if unkown and checked to be constant if it was already known
-func (s *sliceSync) hashes(pos, slice int64) (remote, local *FileInfo, err error) {
+func (s *sliceSync) hashes(pos, slice int64, lfile string) (remote, local *FileInfo, err error) {
 	remote, err = RHash(s.server, s.filename, pos, slice)
 	if err != nil {
 		return
@@ -169,7 +169,7 @@ func (s *sliceSync) hashes(pos, slice int64) (remote, local *FileInfo, err error
 			s.server, s.filename, s.Size, remote.Size)
 		return
 	}
-	local, err = Hash(s.alike, pos, slice)
+	local, err = Hash(lfile, pos, slice)
 	if err != nil {
 		return
 	}

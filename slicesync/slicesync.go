@@ -34,11 +34,11 @@ func main() {
     	fmt.Fprint(os.Stderr, err.Error()+"\n")
     	return
     }
-	fmt.Printf("slicesync\nhttp://%s/dump/%s -> %s %s\nslice=%v\n", server, filename, d, a, slice)
-	downloads,err:=slicesync.Slicesync(server,filename,dest,alike,slice)
+	fmt.Printf("slicesync\nhttp://%s/dump/%s -> %s %s\n[slice=%v]\n", server, filename, d, a, slice)
+	stats,err:=slicesync.Slicesync(server,filename,dest,alike,slice)
 	if err!=nil {
     	fmt.Fprint(os.Stderr, err.Error()+"\n")
     	return
     }
-    fmt.Printf("Done with %ddownloads\n",downloads)
+    fmt.Printf("Done with %v%% downloads\n",(stats.Downloaded*100/stats.Size))
 }
