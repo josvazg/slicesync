@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	AUTOSIZE  = 0
+	AUTOSIZE = 0
 )
 
 type LimitedReadCloser struct {

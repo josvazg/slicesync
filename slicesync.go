@@ -10,13 +10,19 @@ const (
 	UnknownSize = -1
 )
 
+// Stats contains all the relevant stats after a slice synchronization
+type Stats struct {
+	Downloaded, Size int64
+	Downloads        int
+}
+
 // sliceSync contains the full spec for a remote file slice synchronization of remote filename 
 // on server to local destfile while using alike to compare possible already local slices 
 // of size slice 
 type sliceSync struct {
+	Stats
 	server, filename, dest, alike string
-	slice, size                   int64
-	downloads                     int
+	slice                         int64
 }
 
 // Slicesync will copy remote filename from server to local dir or over alike 
@@ -24,33 +30,41 @@ type sliceSync struct {
 // destfile  local destination file to sync to, same as filename if omitted
 // alike     is the local file to compare similar to remote, same as destfile if omitted
 // slice     is the size of each slice to sync
-// it returns the number of downloads done or an error if anything went wrong
-func Slicesync(server, filename, destfile, alike string, slice int64) (int, error) {
+// it returns the sync Stats or an error if anything went wrong
+func Slicesync(server, filename, destfile, alike string, slice int64) (*Stats, error) {
 	dst := destfile
 	if dst == "" {
 		dst = filename
 	}
+	if alike != "" && exists(alike) {
+		return nil, fmt.Errorf("alike file '%s' does not exist!")
+	}
 	if alike == "" {
 		alike = dst
 	}
-	if slice == 0 || !exists(alike) {
-		return 1, Download(server, filename, dst)
+	if slice == 0 {
+		bytes, err := Download(server, filename, dst)
+		if err != nil {
+			return nil, err
+		}
+		return &Stats{bytes, bytes, 1}, nil
 	}
-	sSync := &sliceSync{server, filename, dst, alike, slice, UnknownSize, 0}
+	sSync := &sliceSync{server: server, filename: filename, dest: dst, alike: alike,
+		slice: slice, Stats: Stats{Size: UnknownSize}}
 	err := sSync.sync()
-	return sSync.downloads, err
+	return &sSync.Stats, err
 }
 
 // Download gets the remote file at server completely
-func Download(server, filename, destfile string) error {
+func Download(server, filename, destfile string) (int64, error) {
 	//fmt.Println("Downloading " + filename + " from " + server)
 	orig, err := ROpen(shortUrl(server, "/dump/", filename))
 	if err != nil {
-		return err
+		return 0, err
 	}
 	dest, err := writeAt(destfile, 0)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	return copyNClose(dest, orig)
 }
@@ -65,67 +79,66 @@ func (s *sliceSync) string() string {
 func (s *sliceSync) sync() error {
 	//fmt.Printf("Syncing %v\n", s)
 	// first sync is special, we may not know the remote file size 
-	downloaded, err := s.syncSlice(0)
+	downloaded, bytes, err := s.syncSlice(0)
 	if err != nil {
 		return err
 	}
 	if downloaded {
-		s.downloads++
+		s.Downloads++
+		s.Downloaded += bytes
 	}
 	// size now must be known and CANNOT change!
 	//fmt.Println("size:", s.size)
-	if s.size > s.slice {
+	if s.Size > s.slice {
 		pos := s.slice
-		for ; pos < s.size; pos += s.slice {
-			downloaded, err = s.syncSlice(pos)
+		for ; pos < s.Size; pos += s.slice {
+			downloaded, bytes, err = s.syncSlice(pos)
+			if downloaded {
+				s.Downloads++
+				s.Downloaded += bytes
+			}
 			if err != nil {
 				return err
-			}
-			if downloaded {
-				s.downloads++
 			}
 		}
 	}
 	// final check
-	err = s.check()
-	if err != nil {
-		return err
-	}
-	return nil
+	return s.check()
 }
 
 // syncSlice does the synchronization of a remote filename slice [pos:pos+slice]
-func (s *sliceSync) syncSlice(pos int64) (bool, error) {
+func (s *sliceSync) syncSlice(pos int64) (bool, int64, error) {
 	downloaded := false
 	remote, local, err := s.hashes(pos, s.slice)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	var orig io.ReadCloser
 	if local.Hash == remote.Hash {
 		if s.alike == s.dest { // if alike is same as dest there is no need to copy anything
 			//fmt.Printf("%v(+%v) is fine\n", pos, s.slice)
-			return false, nil
+			return false, 0, nil
 		}
 		orig, _, err = Dump(s.alike, pos, s.slice)
 		//fmt.Printf("%v(+%v) local copy\n", pos, s.slice)
 		if err != nil {
-			return false, err
+			return false, 0, err
 		}
 	} else {
 		orig, err = RDump(s.server, s.filename, pos, s.slice)
 		//fmt.Printf("%v(+%v) remote dump\n", pos, s.slice)
 		if err != nil {
-			return false, err
+			return false, 0, err
 		}
 		downloaded = true
 	}
 	//fmt.Printf("write at %v\n", pos)
 	target, err := writeAt(s.dest, pos)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
-	return downloaded, copyNClose(target, orig)
+	bytes, err := copyNClose(target, orig)
+	return downloaded, bytes, err
 }
 
 // check compares remote and local hash after a sync and returns error if they don't match
@@ -149,11 +162,11 @@ func (s *sliceSync) hashes(pos, slice int64) (remote, local *FileInfo, err error
 	if err != nil {
 		return
 	}
-	if s.size == UnknownSize {
-		s.size = remote.Size
-	} else if s.size != remote.Size {
+	if s.Size == UnknownSize {
+		s.Size = remote.Size
+	} else if s.Size != remote.Size {
 		err = fmt.Errorf("%s/%s file size changed! (expected %v but got %v)",
-			s.server, s.filename, s.size, remote.Size)
+			s.server, s.filename, s.Size, remote.Size)
 		return
 	}
 	local, err = Hash(s.alike, pos, slice)
@@ -181,11 +194,10 @@ func writeAt(filename string, pos int64) (io.WriteCloser, error) {
 }
 
 // copyNClose copies all r to w and closes both w and r
-func copyNClose(w io.WriteCloser, r io.ReadCloser) error {
+func copyNClose(w io.WriteCloser, r io.ReadCloser) (int64, error) {
 	defer w.Close()
 	defer w.Close()
-	_, err := io.Copy(w, r)
-	return err
+	return io.Copy(w, r)
 }
 
 // Does the file exists?

@@ -33,13 +33,13 @@ func TestSync(t *testing.T) {
 	go slicesync.HashNDumpServer(port)
 	for i, st := range synctests {
 		writeFile(t, st.filename, st.content)
-		downloads, err := slicesync.Slicesync(server, filename, st.filename, "", st.slice)
+		stats, err := slicesync.Slicesync(server, filename, st.filename, "", st.slice)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if downloads != st.downloads {
+		if stats.Downloads != st.downloads {
 			t.Fatalf("Test %d: Got %d downloads to sync %s, but %d where expected!\n",
-				i, downloads, st.filename, st.downloads)
+				i, stats.Downloads, st.filename, st.downloads)
 		}
 	}
 }
