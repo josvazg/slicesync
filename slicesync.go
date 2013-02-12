@@ -44,7 +44,7 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (int, erro
 // Download gets the remote file at server completely
 func Download(server, filename, destfile string) error {
 	//fmt.Println("Downloading " + filename + " from " + server)
-	orig, err := ROpen(shortUrl(server, "", filename))
+	orig, err := ROpen(shortUrl(server, "/dump/", filename))
 	if err != nil {
 		return err
 	}
