@@ -11,7 +11,7 @@ import (
 func main() {
 	var server,filename,dest,alike string
 	var slice int64
-	flag.StringVar(&server,"server","","Server to sync from")
+	flag.StringVar(&server,"server","localhost:8000","Server to sync from")
 	flag.StringVar(&filename,"filename","","Remote filename to sync from")
     flag.StringVar(&dest,"dest","","(Optional) Local destination")
     flag.StringVar(&alike,"alike","","(Optional) Local similar, previous or look-alike file")
