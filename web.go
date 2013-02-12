@@ -69,7 +69,7 @@ func noExt(filename string) string {
 // readArgs reads request args for hash & dump
 func readArgs(w http.ResponseWriter, r *http.Request) (f string, o, s int64, e error) {
 	filename := r.URL.Path
-	if filename[0] == '/' {
+	if filename!="" && filename[0] == '/' {
 		filename = filename[1:]
 	}
 	if filename == "" {
