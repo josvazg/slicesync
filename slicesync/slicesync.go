@@ -8,6 +8,10 @@ import (
 	"github.com/josvazg/slicesync"
 )
 
+const (
+	MiB=1048576
+)
+
 func main() {
 	var server,filename,dest,alike string
 	var slice int64
@@ -41,4 +45,6 @@ func main() {
     	return
     }
     fmt.Printf("Done with %v%% downloads\n",(stats.Downloaded*100/stats.Size))
+    fmt.Printf("%ddownloads of %vMiB (max slice)\n",stats.Downloads, (slice/MiB))
+    fmt.Printf("%vMiB downloaded of %vMiB total\n",(stats.Downloaded/MiB), (stats.Size/MiB))
 }
