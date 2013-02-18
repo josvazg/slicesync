@@ -20,7 +20,7 @@ func pct(bytes, total int64) float64 {
 
 func main() {
 	if(len(os.Args)<2) {
-		fmt.Printf("Usage: %d {filename}\n",os.Args[0])
+		fmt.Printf("Usage: %v {filename}\n",os.Args[0])
 		return
 	}
 	filename:=os.Args[1]
