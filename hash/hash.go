@@ -29,5 +29,5 @@ func main() {
 		fmt.Fprint(os.Stderr, err.Error()+"\n")
 		return
 	}
-	fmt.Println(fi)
+	fmt.Println(fi.Hash)
 }

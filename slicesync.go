@@ -42,7 +42,7 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Stats, e
 	if alike == "" {
 		alike = dst
 	}
-	if slice == 0 {
+	if slice == 0 || !exists(alike) {
 		bytes, err := Download(server, filename, dst)
 		if err != nil {
 			return nil, err
