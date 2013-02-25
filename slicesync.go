@@ -25,6 +25,12 @@ type sliceSync struct {
 	slice                         int64
 }
 
+// FileInfo or Error after a remote hash calculus
+type hashOrFailure struct {
+	fi  *FileInfo
+	err error
+}
+
 // Slicesync will copy remote filename from server to local dir or over alike 
 // filename  remote file to sync from
 // destfile  local destination file to sync to, same as filename if omitted
@@ -37,7 +43,7 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Stats, e
 		dst = filename
 	}
 	if alike != "" && !exists(alike) {
-		return nil, fmt.Errorf("alike file '%s' does not exist!",alike)
+		return nil, fmt.Errorf("alike file '%s' does not exist!", alike)
 	}
 	if alike == "" {
 		alike = dst
@@ -158,7 +164,19 @@ func (s *sliceSync) check() error {
 // hashes returns both the remote and local hashs
 // the size is updated if unkown and checked to be constant if it was already known
 func (s *sliceSync) hashes(pos, slice int64, lfile string) (remote, local *FileInfo, err error) {
-	remote, err = RHash(s.server, s.filename, pos, slice)
+	ch := make(chan hashOrFailure)
+	go func(ch chan hashOrFailure) {
+		remote, err := RHash(s.server, s.filename, pos, slice)
+		ch <- hashOrFailure{remote, err}
+	}(ch)
+	local, err = Hash(lfile, pos, slice)
+	if err != nil {
+		return
+	}
+	var hof hashOrFailure
+	hof = <-ch
+	remote = hof.fi
+	err = hof.err
 	if err != nil {
 		return
 	}
@@ -167,10 +185,6 @@ func (s *sliceSync) hashes(pos, slice int64, lfile string) (remote, local *FileI
 	} else if s.Size != remote.Size {
 		err = fmt.Errorf("%s/%s file size changed! (expected %v but got %v)",
 			s.server, s.filename, s.Size, remote.Size)
-		return
-	}
-	local, err = Hash(lfile, pos, slice)
-	if err != nil {
 		return
 	}
 	return
@@ -200,7 +214,7 @@ func copyNClose(w io.WriteCloser, r io.ReadCloser) (int64, error) {
 	return io.Copy(w, r)
 }
 
-// Does the file exists?
+// Does the file exist?
 func exists(filename string) bool {
 	if _, err := os.Stat(filename); err == nil {
 		return true
