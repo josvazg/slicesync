@@ -1,6 +1,7 @@
 package slicesync
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,27 @@ const (
 type Stats struct {
 	Downloaded, Size int64
 	Downloads        int
+}
+
+// Diff marks a start offset and a size in bytes
+type Diff struct {
+	Offset, Size int64
+}
+
+// SliceDiffs list the differences between two similar files, a remote filename and a local alike
+type SliceDiffs struct {
+	Server, Filename, Alike  string
+	Slice, Size, Differences int64
+	Diffs                    []Diff
+}
+
+// String shows the diffs in a json representation
+func (sd *SliceDiffs) String() string {
+	bytes,err:=json.Marshal(sd)
+	if err!=nil {
+		return err.Error()
+	}
+	return string(bytes)
 }
 
 // sliceSync contains the full spec for a remote file slice synchronization of remote filename 
@@ -31,63 +53,38 @@ type hashback struct {
 	err error
 }
 
-// Diffs returns the slices numbers that differ
-func Diffs(server, filename, alike string, slice int64) ([]int64,error) {
-	diffs:=make([]int64,1,100)
-	pos:=int64(0)
-	size:=int64(UnknownSize)
+// Diffs returns the slices that differ in a SliceDiffs type
+func Diffs(server, filename, alike string, slice int64) (*SliceDiffs, error) {
+	sdiffs := &SliceDiffs{server, filename, alike, slice, UnknownSize, 0, make([]Diff, 0, 10)}
 	ch := make(chan hashback)
-	slot:=int64(0)
-	slots:=0
-	ranges:=0
-	indiff:=false
-	for ;pos==0 || pos<size; pos+=slice {
+	indiff := false
+	for pos := int64(0); pos == 0 || pos < sdiffs.Size; pos += slice {
 		go Hashback(server, filename, pos, slice, ch)
-		local,err:=Hash(alike, pos, slice)
-		if err!=nil {
-			return nil,err
+		local, err := Hash(alike, pos, slice)
+		if err != nil { // exit if there is a local hash error
+			return nil, err
 		}
-		remote:=<-ch
-		if remote.err!=nil {
-			return nil,remote.err
+		remote := <-ch
+		if remote.err != nil { // exit as well if there was a remote hash error
+			return nil, remote.err
 		}
-		if size==UnknownSize { // update the size and store in the first position
-			size=remote.fi.Size
-			diffs[0]=size
-			fmt.Println("diffs(size):",diffs)
+		if sdiffs.Size == UnknownSize { // update the size and store in the first position
+			sdiffs.Size = remote.fi.Size
 		}
-		last:=len(diffs)-1
-		if local.Hash!=remote.fi.Hash { // if there is a difference...
-			slots++
-			if last>0 && indiff && diffs[last]+1==slot { // join if it's consecutive
-				diffs[last]=slot
-			} else { 
-				indiff=!indiff
-				diffs=append(diffs,slot)
-				if(!indiff) { // if outside the diff, end the pair
-					r:=diffs[last+1]-diffs[last]+1
-					ranges+=int(r)
-					if ranges!=slots {
-						return nil,fmt.Errorf("Expected %d but got %d!",slots,ranges)
-					}
-					diffs[last+1]=r
-				} else { // if in diff, start the pair
-					diffs=append(diffs,slot)
-				}
+		if indiff {
+			if local.Hash == remote.fi.Hash {
+				indiff = false
+			} else {
+				sdiffs.Diffs[len(sdiffs.Diffs)-1].Size += slice
+				sdiffs.Differences+=slice
 			}
-			
-		} else if indiff {
-			indiff=!indiff
-			r:=diffs[last]-diffs[last-1]+1
-			ranges+=int(r)
-			if ranges!=slots {
-				return nil,fmt.Errorf("Expected %d but got %d!",slots,ranges);
-			}
-			diffs[last]=r
+		} else if local.Hash != remote.fi.Hash {
+			sdiffs.Diffs = append(sdiffs.Diffs, Diff{pos, slice})
+			sdiffs.Differences+=slice
+			indiff = true
 		}
-		slot++
 	}
-	return diffs,nil
+	return sdiffs, nil
 }
 
 // Hashback does a RHash and returns the hashback result through the given channel
@@ -137,7 +134,7 @@ func (s *sliceSync) download() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	done,err:=copyNClose(dest, orig)
+	done, err := copyNClose(dest, orig)
 	if err != nil {
 		return done, err
 	}
@@ -213,13 +210,13 @@ func (s *sliceSync) syncSlice(pos int64) (bool, int64, error) {
 	if err != nil {
 		return false, 0, err
 	}
-	action:="Copy"
+	action := "Copy"
 	if downloaded {
-		action="Download"
+		action = "Download"
 	}
-	fmt.Printf("%d %s...\n",(pos/s.slice),action)
+	fmt.Printf("%d %s...\n", (pos / s.slice), action)
 	bytes, err := copyNClose(target, orig)
-	fmt.Printf("%d %s done\n",(pos/s.slice),action)
+	fmt.Printf("%d %s done\n", (pos / s.slice), action)
 	return downloaded, bytes, err
 }
 
@@ -249,7 +246,7 @@ func (s *sliceSync) hashes(pos, slice int64, lfile string) (remote, local *FileI
 	if err != nil {
 		return
 	}
-	hof:= <-ch
+	hof := <-ch
 	remote = hof.fi
 	err = hof.err
 	if err != nil {
@@ -262,7 +259,7 @@ func (s *sliceSync) hashes(pos, slice int64, lfile string) (remote, local *FileI
 			s.server, s.filename, s.Size, remote.Size)
 		return
 	}
-	fmt.Printf("%v hash pair done\n",(pos/slice))
+	fmt.Printf("%v hash pair done\n", (pos / slice))
 	return
 }
 
