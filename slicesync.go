@@ -22,15 +22,15 @@ type Diff struct {
 	Offset, Size int64
 }
 
-// SliceDiffs list the differences between two similar files, a remote filename and a local alike
-type SliceDiffs struct {
+// Diffs list the differences between two similar files, a remote filename and a local alike
+type Diffs struct {
 	Server, Filename, Alike  string
 	Slice, Size, Differences int64
 	Diffs                    []Diff
 }
 
 // String shows the diffs in a json representation
-func (sd *SliceDiffs) String() string {
+func (sd *Diffs) String() string {
 	bytes,err:=json.Marshal(sd)
 	if err!=nil {
 		return err.Error()
@@ -53,9 +53,9 @@ type hashback struct {
 	err error
 }
 
-// Diffs returns the slices that differ in a SliceDiffs type
-func Diffs(server, filename, alike string, slice int64) (*SliceDiffs, error) {
-	sdiffs := &SliceDiffs{server, filename, alike, slice, UnknownSize, 0, make([]Diff, 0, 10)}
+// CalcDiffs returns the Diffs between remote filename and local alike
+func CalcDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
+	sdiffs := &Diffs{server, filename, alike, slice, UnknownSize, 0, make([]Diff, 0, 10)}
 	ch := make(chan hashback)
 	indiff := false
 	for pos := int64(0); pos == 0 || pos < sdiffs.Size; pos += slice {
@@ -99,7 +99,21 @@ func Hashback(server, filename string, pos, slice int64, ch chan hashback) {
 // alike     is the local file to compare similar to remote, same as destfile if omitted
 // slice     is the size of each slice to sync
 // it returns the sync Stats or an error if anything went wrong
-func Slicesync(server, filename, destfile, alike string, slice int64) (*Stats, error) {
+// Slicesync steps are as follows
+// 1. Copy local alike file as target destfile (if they are not the same file)
+// 2. GenerateSliceDiff differences between alike and (remote) filename
+// 3. Calculate remote hash for filename
+// 4. Download differences only
+// 5. Calculate local hash
+// 6. Check local hash against remote hash
+// 7. Return the Diffs
+//
+// * Steps 1-3 are completely independent, so they are run on different goroutines
+// * Step 4 (download) depends on 2 (diffs)
+// * Step 5 (local hash) depends on 4 (download)
+// * Step 6 depends on 5 (local hash) and 3 (remote hash)
+//
+func Slicesync(server, filename, destfile, alike string, slice int64) (*Stats, error) {	
 	dst := destfile
 	if dst == "" {
 		dst = filename
