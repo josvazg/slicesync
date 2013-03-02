@@ -21,11 +21,17 @@ func pct(bytes, total int64) float64 {
 }
 
 func main() {
-	var server, filename, dest, alike string
+	var to, alike string
 	var slice int64
-	flag.StringVar(&server, "server", "localhost:8000", "Server to sync from")
-	flag.StringVar(&filename, "filename", "", "Remote filename to sync from")
-	flag.StringVar(&dest, "dest", "", "(Optional) Local destination")
+	if len(os.Args) < 2 {
+		fmt.Printf(
+			"Usage: %v {server} {filename} [-to destination] [-alike localAlike] [-slice bytes, default=1MB]\n",
+			os.Args[0])
+		return
+	}
+	server := os.Args[1]
+	filename := os.Args[2]
+	flag.StringVar(&to, "to", "", "(Optional) Local destination")
 	flag.StringVar(&alike, "alike", "", "(Optional) Local similar, previous or look-alike file")
 	flag.Int64Var(&slice, "slice", 10485760, "(Optional) Slice size")
 	flag.Parse()
@@ -33,7 +39,7 @@ func main() {
 		flag.PrintDefaults()
 		return
 	}
-	d := dest
+	d := to
 	if d == "" {
 		d = filename
 	}
@@ -47,12 +53,11 @@ func main() {
 		return
 	}
 	fmt.Printf("slicesync\nhttp://%s/dump/%s -> %s %s\n[slice=%v]\n", server, filename, d, a, slice)
-	stats, err := slicesync.Slicesync(server, filename, dest, alike, slice)
+	diffs, err := slicesync.Slicesync(server, filename, to, alike, slice)
 	if err != nil {
 		fmt.Fprint(os.Stderr, err.Error()+"\n")
 		return
 	}
-	fmt.Printf("Done with %f%% downloads\n", pct(stats.Downloaded, stats.Size))
-	fmt.Printf("%ddownloads of %fMiB (max slice)\n", stats.Downloads, toMiB(slice))
-	fmt.Printf("%fMiB downloaded of %fMiB total\n", toMiB(stats.Downloaded), toMiB(stats.Size))
+	fmt.Printf("Done with %v downloads %v%% downloaded\n", len(diffs.Diffs), pct(diffs.Differences, diffs.Size))
+	fmt.Printf("%fMiB downloaded of %fMiB total\n", toMiB(diffs.Differences), toMiB(diffs.Size))
 }

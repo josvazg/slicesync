@@ -19,12 +19,11 @@ AAAAAAAaA
 )
 
 var synctests = []struct {
-	filename, content string
-	slice             int64
-	downloads         int
+	filename, content  string
+	slice, differences int64
 }{
-	{"testfile2.txt", likefile, 10, 3},   // 0
-	{"testfile2.txt", likefile, 1000, 1}, // 1
+	{"testfile2.txt", likefile, 10, 30},     // 0
+	{"testfile2.txt", likefile, 1000, 1000}, // 1
 }
 
 func TestSync(t *testing.T) {
@@ -33,13 +32,13 @@ func TestSync(t *testing.T) {
 	go slicesync.HashNDumpServer(port)
 	for i, st := range synctests {
 		writeFile(t, st.filename, st.content)
-		stats, err := slicesync.Slicesync(server, filename, st.filename, "", st.slice)
+		diffs, err := slicesync.Slicesync(server, filename, st.filename, "", st.slice)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if stats.Downloads != st.downloads {
-			t.Fatalf("Test %d: Got %d downloads to sync %s, but %d where expected!\n",
-				i, stats.Downloads, st.filename, st.downloads)
+		if diffs.Differences != st.differences {
+			t.Fatalf("Test %d: Expected %d differences to sync %s, but got %d!\n",
+				i, st.differences, st.filename, diffs.Differences)
 		}
 	}
 }
