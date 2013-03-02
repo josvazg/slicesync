@@ -133,9 +133,12 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 		return nil, remote.err
 	}
 	// 4) download
-	_, err = Download(dst, diffs)
+	downloaded, err := Download(dst, diffs)
 	if err != nil {
 		return nil, err
+	}
+	if diffs.Differences == 0 && diffs.Size == UnknownSize && len(diffs.Diffs)==1 {
+		diffs.Differences, diffs.Size = downloaded, downloaded
 	}
 	// 5) local hash
 	local, err := Hash(dst, 0, UnknownSize)
