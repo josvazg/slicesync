@@ -7,10 +7,6 @@ import (
 	"os"
 )
 
-const (
-	UnknownSize = -1
-)
-
 // Diff marks a start offset and a size in bytes
 type Diff struct {
 	Offset, Size int64
@@ -40,7 +36,7 @@ type hashback struct {
 
 // CalcDiffs returns the Diffs between remote filename and local alike
 func CalcDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
-	diffs := &Diffs{server, filename, alike, slice, UnknownSize, 0, make([]Diff, 0, 10)}
+	diffs := &Diffs{server, filename, alike, slice, AUTOSIZE, 0, make([]Diff, 0, 10)}
 	ch := make(chan hashback)
 	indiff := false
 	for pos := int64(0); pos == 0 || pos < diffs.Size; pos += slice {
@@ -53,7 +49,7 @@ func CalcDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
 		if remote.err != nil { // exit as well if there was a remote hash error
 			return nil, remote.err
 		}
-		if diffs.Size == UnknownSize { // update the size and store in the first position
+		if diffs.Size == AUTOSIZE { // update the size and store in the first position
 			diffs.Size = remote.fi.Size
 		}
 		if indiff {
@@ -107,10 +103,10 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 	hashch := make(chan hashback)
 	copych := make(chan error)
 	// remote hash
-	go hashnback(server, filename, 0, UnknownSize, hashch)
+	go hashnback(server, filename, 0, AUTOSIZE, hashch)
 	var diffs *Diffs
 	if slice == 0 || !exists(alike) { // no diff		
-		diffs = &Diffs{server, filename, alike, slice, UnknownSize, 0, []Diff{{int64(0), UnknownSize}}}
+		diffs = &Diffs{server, filename, alike, slice, AUTOSIZE, 0, []Diff{{int64(0), AUTOSIZE}}}
 	} else {
 		// filecopy
 		go func(destfile, alike string, ch chan error) {
@@ -123,29 +119,29 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 		if err != nil {
 			return nil, err
 		}
-	}
-	err := <-copych
-	if err != nil {
-		return nil, err
-	}
-	remote := <-hashch
-	if remote.err != nil {
-		return nil, remote.err
+		err = <-copych
+		if err != nil {
+			return nil, err
+		}
 	}
 	// 4) download
 	downloaded, err := Download(dst, diffs)
 	if err != nil {
 		return nil, err
 	}
-	if diffs.Differences == 0 && diffs.Size == UnknownSize && len(diffs.Diffs)==1 {
+	if diffs.Differences == 0 && diffs.Size == AUTOSIZE && len(diffs.Diffs)==1 {
 		diffs.Differences, diffs.Size = downloaded, downloaded
 	}
 	// 5) local hash
-	local, err := Hash(dst, 0, UnknownSize)
+	local, err := Hash(dst, 0, AUTOSIZE)
 	if err != nil {
 		return nil, err
 	}
 	// 6) check
+	remote := <-hashch
+	if remote.err != nil {
+		return nil, remote.err
+	}
 	if local.Hash != remote.fi.Hash {
 		return nil, fmt.Errorf("Hash error, expected '%s' but got '%s'!", local.Hash, remote.fi.Hash)
 	}
