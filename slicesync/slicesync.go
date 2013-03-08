@@ -23,7 +23,7 @@ func pct(bytes, total int64) float64 {
 func main() {
 	var to, alike string
 	var slice int64
-	if len(os.Args) < 2 {
+	if len(os.Args) < 3 {
 		fmt.Printf(
 			"Usage: %v {server} {filename} [-to destination] [-alike localAlike] [-slice bytes, default=1MB]\n",
 			os.Args[0])

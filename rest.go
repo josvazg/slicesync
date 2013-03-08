@@ -13,7 +13,7 @@ import (
 // -- Server Side --
 
 // HashNDumpServer prepares an HTTP Server to Hash and Dump slices of files remotely
-func HashNDumpServer(dir string, port int) {
+func HashNDumpServer(port int, dir string) {
 	SetupHashNDump(&LocalHashNDump{dir})
 	http.ListenAndServe(fmt.Sprintf(":%v", port), nil)
 }
