@@ -39,7 +39,7 @@ type HashNDumper interface {
 
 // LocalHashNDump implements the HashNDump Service locally
 type LocalHashNDump struct {
-	dir string
+	Dir string
 }
 
 // Hash returns the Hash (sha-1) for a file slice or the full file
@@ -54,7 +54,7 @@ func (hnd *LocalHashNDump) Hash(filename string, offset, slice int64) (
 			err = r.(error)
 		}
 	}()
-	hi = hash(calcpath(hnd.dir, filename), offset, slice)
+	hi = hash(calcpath(hnd.Dir, filename), offset, slice)
 	return
 }
 
@@ -69,7 +69,7 @@ func (hnd *LocalHashNDump) Dump(filename string, offset, slice int64) (
 			err = r.(error)
 		}
 	}()
-	rc = dump(calcpath(hnd.dir, filename), offset, slice)
+	rc = dump(calcpath(hnd.Dir, filename), offset, slice)
 	return
 }
 

@@ -29,9 +29,10 @@ var tests = []struct {
 }
 
 func TestSlices(t *testing.T) {
+	hnd:=&slicesync.LocalHashNDump{"."}
 	writeFile(t, "testfile.txt", testfile)
 	for i, test := range tests {
-		dmp, _, err := slicesync.Dump(test.filename, test.start, test.len)
+		dmp, err := hnd.Dump(test.filename, test.start, test.len)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -42,7 +43,7 @@ func TestSlices(t *testing.T) {
 			t.Fatalf("Test #%d failed: expected '%s' but got '%s'\n%v\n",
 				i, test.expected, str, test)
 		}
-		fi, err := slicesync.Hash(test.filename, test.start, test.len)
+		fi, err := hnd.Hash(test.filename, test.start, test.len)
 		if err != nil {
 			t.Fatal(err)
 		}
