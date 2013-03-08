@@ -80,6 +80,8 @@ func calcpath(dir, filename string) string {
 	fullpath = filepath.Clean(fullpath)
 	fulldir, err:= filepath.Abs(dir)
 	autopanic(err)
+	fmt.Println("fullpath="+fullpath)
+	fmt.Println("fulldir="+fulldir)
 	if !filepath.HasPrefix(fullpath, fulldir) {
 		panic(fmt.Errorf("Illegal filename %s, not within %s!", filename, fulldir))
 	}
