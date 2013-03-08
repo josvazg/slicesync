@@ -60,7 +60,7 @@ func (hnd *LocalHashNDump) Hash(filename string, offset, slice int64) (
 
 // Dump opens a file to read just a slice of it
 func (hnd *LocalHashNDump) Dump(filename string, offset, slice int64) (
-	rc io.ReadCloser, err error) {
+	rc *LimitedReadCloser, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
@@ -78,7 +78,7 @@ func calcpath(dir, filename string) string {
 	fullpath, err := filepath.Abs(filepath.Join(dir, filename))
 	autopanic(err)
 	fullpath = filepath.Clean(fullpath)
-	fulldir, err:= filepath.Abs(dir)
+	fulldir, err := filepath.Abs(dir)
 	autopanic(err)
 	if !filepath.HasPrefix(fullpath, fulldir) {
 		panic(fmt.Errorf("Illegal filename %s, not within %s!", filename, fulldir))
@@ -105,12 +105,12 @@ func hash(filename string, offset, slice int64) *HashInfo {
 }
 
 // dump is the internal function that opens the file to read just a slice of it
-func dump(filename string, offset, slice int64) io.ReadCloser {
+func dump(filename string, offset, slice int64) *LimitedReadCloser {
 	file, err := os.Open(filename) // For read access
 	autopanic(err)
 	fi, err := file.Stat()
 	autopanic(err)
-	toread:=sliceFile(file, fi.Size(), offset, slice)
+	toread := sliceFile(file, fi.Size(), offset, slice)
 	return &LimitedReadCloser{io.LimitedReader{file, toread}}
 }
 
@@ -123,7 +123,7 @@ func sliceFile(file *os.File, max, offset, slice int64) int64 {
 		_, err := file.Seek(offset, os.SEEK_SET)
 		autopanic(err)
 	}
-	toread:=slice
+	toread := slice
 	if slice == AUTOSIZE || (offset+slice) > max {
 		toread = max - offset
 	}
@@ -133,7 +133,7 @@ func sliceFile(file *os.File, max, offset, slice int64) int64 {
 // autopanic panic on any non-nil error
 func autopanic(err error) {
 	if err != nil {
-		fmt.Println("Got error:",err)
+		fmt.Println("Got error:", err)
 		panic(err)
 	}
 }

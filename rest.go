@@ -52,11 +52,11 @@ func dumper(hnd *LocalHashNDump) http.Handler {
 			return
 		}
 		sliced := !(offset == 0 && size == 0)
-		slice, err := hnd.Dump(filename, offset, size)
+		sliceData, err := hnd.Dump(filename, offset, size)
 		if handleError(w, r, err) {
 			return
 		}
-		w.Header().Set("Content-Length", fmt.Sprintf("%v", slice))
+		w.Header().Set("Content-Length", fmt.Sprintf("%v", sliceData.N))
 		w.Header().Set("Content-Type", "application/octet-stream")
 		downfilename := filename
 		if sliced {
@@ -65,7 +65,7 @@ func dumper(hnd *LocalHashNDump) http.Handler {
 		}
 		w.Header().Set("Content-Disposition",
 			fmt.Sprintf("attachment; filename=\"%s\"", downfilename))
-		io.Copy(w, slice)
+		io.Copy(w, sliceData)
 	})
 }
 
