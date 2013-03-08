@@ -14,9 +14,15 @@ type Diff struct {
 
 // Diffs list the differences between two similar files, a remote filename and a local alike
 type Diffs struct {
-	Server, Filename, Alike  string
+	RemoteHashNDump
+	Filename, Alike          string
 	Slice, Size, Differences int64
 	Diffs                    []Diff
+}
+
+// NewDiffs creates a Diffs data type
+func NewDiffs(server, filename, alike string, slice, size int64) *Diffs {
+	return &Diffs{RemoteHashNDump{server}, filename, alike, slice, size, 0, make([]Diff, 0, 10)}
 }
 
 // String shows the diffs in a json representation
@@ -30,18 +36,19 @@ func (sd *Diffs) String() string {
 
 // hasback contains the response back to a remote hash request or an error
 type hashback struct {
-	fi  *FileInfo
+	HashInfo
 	err error
 }
 
 // CalcDiffs returns the Diffs between remote filename and local alike
 func CalcDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
-	diffs := &Diffs{server, filename, alike, slice, AUTOSIZE, 0, make([]Diff, 0, 10)}
+	localHnd := &LocalHashNDump{"."}
+	diffs := NewDiffs(server, filename, alike, slice, AUTOSIZE)
 	ch := make(chan hashback)
 	indiff := false
 	for pos := int64(0); pos == 0 || pos < diffs.Size; pos += slice {
-		go hashnback(server, filename, pos, slice, ch)
-		local, err := Hash(alike, pos, slice)
+		go hashnback(diffs, filename, pos, slice, ch)
+		local, err := localHnd.Hash(alike, pos, slice)
 		if err != nil { // exit if there is a local hash error
 			return nil, err
 		}
@@ -50,16 +57,16 @@ func CalcDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
 			return nil, remote.err
 		}
 		if diffs.Size == AUTOSIZE { // update the size and store in the first position
-			diffs.Size = remote.fi.Size
+			diffs.Size = remote.Size
 		}
 		if indiff {
-			if local.Hash == remote.fi.Hash {
+			if local.Hash == remote.Hash {
 				indiff = false
 			} else {
 				diffs.Diffs[len(diffs.Diffs)-1].Size += slice
 				diffs.Differences += slice
 			}
-		} else if local.Hash != remote.fi.Hash {
+		} else if local.Hash != remote.Hash {
 			diffs.Diffs = append(diffs.Diffs, Diff{pos, slice})
 			diffs.Differences += slice
 			indiff = true
@@ -102,11 +109,9 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 	// 1+2+3) localcopy + diffs + remote hash
 	hashch := make(chan hashback)
 	copych := make(chan error)
-	// remote hash
-	go hashnback(server, filename, 0, AUTOSIZE, hashch)
 	var diffs *Diffs
 	if slice == 0 || !exists(alike) { // no diff		
-		diffs = &Diffs{server, filename, alike, slice, AUTOSIZE, 0, []Diff{{int64(0), AUTOSIZE}}}
+		diffs = NewDiffs(server, filename, alike, slice, AUTOSIZE)
 	} else {
 		// filecopy
 		go func(destfile, alike string, ch chan error) {
@@ -124,16 +129,19 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 			return nil, err
 		}
 	}
+	// remote hash
+	go hashnback(diffs, filename, 0, AUTOSIZE, hashch)
 	// 4) download
 	downloaded, err := Download(dst, diffs)
 	if err != nil {
 		return nil, err
 	}
-	if diffs.Differences == 0 && diffs.Size == AUTOSIZE && len(diffs.Diffs)==1 {
+	if diffs.Differences == 0 && diffs.Size == AUTOSIZE && len(diffs.Diffs) == 1 {
 		diffs.Differences, diffs.Size = downloaded, downloaded
 	}
 	// 5) local hash
-	local, err := Hash(dst, 0, AUTOSIZE)
+	hnd := &LocalHashNDump{"."}
+	local, err := hnd.Hash(dst, 0, AUTOSIZE)
 	if err != nil {
 		return nil, err
 	}
@@ -142,8 +150,8 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 	if remote.err != nil {
 		return nil, remote.err
 	}
-	if local.Hash != remote.fi.Hash {
-		return nil, fmt.Errorf("Hash error, expected '%s' but got '%s'!", local.Hash, remote.fi.Hash)
+	if local.Hash != remote.Hash {
+		return nil, fmt.Errorf("Hash error, expected '%s' but got '%s'!", local.Hash, remote.Hash)
 	}
 	return diffs, nil
 }
@@ -153,7 +161,7 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 func Download(dst string, diffs *Diffs) (int64, error) {
 	downloaded := int64(0)
 	for _, diff := range diffs.Diffs {
-		orig, err := RDump(diffs.Server, diffs.Filename, diff.Offset, diff.Size)
+		orig, err := diffs.Dump(diffs.Filename, diff.Offset, diff.Size)
 		if err != nil {
 			return downloaded, err
 		}
@@ -171,9 +179,9 @@ func Download(dst string, diffs *Diffs) (int64, error) {
 }
 
 // hashnback does a RHash and returns the hashback result through the given channel
-func hashnback(server, filename string, pos, slice int64, ch chan hashback) {
-	remote, err := RHash(server, filename, pos, slice)
-	ch <- hashback{remote, err}
+func hashnback(rhnd HashNDumper, filename string, pos, slice int64, ch chan hashback) {
+	r, err := rhnd.Hash(filename, pos, slice)
+	ch <- hashback{HashInfo{r.Size,r.Offset,r.Slice,r.Hash}, err}
 }
 
 // writeAt opens a file to write at position pos, ensuring the file is big enough
