@@ -24,7 +24,8 @@ func main() {
 		return
 	}
 	filename:=os.Args[1]
-	fi,err:=slicesync.Hash(filename,0,slicesync.AUTOSIZE)
+	hnd:=slicesync.LocalHashNDump{"."}
+	fi,err:=hnd.Hash(filename,0,slicesync.AUTOSIZE)
 	if err != nil {
 		fmt.Fprint(os.Stderr, err.Error()+"\n")
 		return
