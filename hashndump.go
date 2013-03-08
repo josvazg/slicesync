@@ -80,8 +80,6 @@ func calcpath(dir, filename string) string {
 	fullpath = filepath.Clean(fullpath)
 	fulldir, err:= filepath.Abs(dir)
 	autopanic(err)
-	fmt.Println("fullpath="+fullpath)
-	fmt.Println("fulldir="+fulldir)
 	if !filepath.HasPrefix(fullpath, fulldir) {
 		panic(fmt.Errorf("Illegal filename %s, not within %s!", filename, fulldir))
 	}
@@ -108,12 +106,12 @@ func hash(filename string, offset, slice int64) *HashInfo {
 
 // dump is the internal function that opens the file to read just a slice of it
 func dump(filename string, offset, slice int64) io.ReadCloser {
-	file, err := os.Open(filename) // For read access.
+	file, err := os.Open(filename) // For read access
 	autopanic(err)
 	fi, err := file.Stat()
 	autopanic(err)
-	sliceFile(file, fi.Size(), offset, slice)
-	return &LimitedReadCloser{io.LimitedReader{file, slice}}
+	toread:=sliceFile(file, fi.Size(), offset, slice)
+	return &LimitedReadCloser{io.LimitedReader{file, toread}}
 }
 
 // sliceFile positions to the offset pos of file and prepares to read up to slice bytes of it.
@@ -135,6 +133,7 @@ func sliceFile(file *os.File, max, offset, slice int64) int64 {
 // autopanic panic on any non-nil error
 func autopanic(err error) {
 	if err != nil {
+		fmt.Println("Got error:",err)
 		panic(err)
 	}
 }
