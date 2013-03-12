@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/josvazg/slicesync"
 	"os"
+	"strconv"
 )
 
 const (
@@ -30,9 +31,14 @@ func main() {
 	alike := os.Args[3]
 	slice := int64(MiB)
 	if len(os.Args) > 4 {
-		fmt.Scanf(os.Args[4], "%d", slice)
+		var err error
+		slice,err=strconv.ParseInt(os.Args[4], 10, 64)
+		if err!=nil {
+			fmt.Println(err)
+			return
+		}
 	}
-	fmt.Printf("diff\nhttp://%s/dump/%s -> %s [slice=%v]\n", server, filename, alike, slice)
+	fmt.Printf("diff http://%s/dump/%s -> %s\n[slice=%v]\n", server, filename, alike, slice)
 	diffs, err := slicesync.CalcDiffs(server, filename, alike, slice)
 	if err != nil {
 		fmt.Fprint(os.Stderr, err.Error()+"\n")
