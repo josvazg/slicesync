@@ -123,6 +123,7 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 		// diff
 		var err error
 		diffs, err = CalcDiffs(server, filename, alike, slice)
+		fmt.Println("Diffs=",diffs)
 		if err != nil {
 			return nil, err
 		}

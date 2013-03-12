@@ -28,11 +28,11 @@ func SetupHashNDump(hnd *LocalHashNDump) {
 // hasher returns a rest/http request handler to return hash info, including hashes of file slices
 func hasher(hnd *LocalHashNDump) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		filename, offset, size, err := readArgs(w, r)
+		filename, offset, slice, err := readArgs(w, r)
 		if handleError(w, r, err) {
 			return
 		}
-		hi, err := hnd.Hash(filename, offset, size)
+		hi, err := hnd.Hash(filename, offset, slice)
 		if handleError(w, r, err) {
 			return
 		}
@@ -47,12 +47,12 @@ func hasher(hnd *LocalHashNDump) http.Handler {
 // dumper returns a rest/http request handler to return a file slice (or the entire file)
 func dumper(hnd *LocalHashNDump) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		filename, offset, size, err := readArgs(w, r)
+		filename, offset, slice, err := readArgs(w, r)
 		if handleError(w, r, err) {
 			return
 		}
-		sliced := !(offset == 0 && size == 0)
-		sliceData, err := hnd.Dump(filename, offset, size)
+		sliced := !(offset == 0 && slice == 0)
+		sliceData, err := hnd.Dump(filename, offset, slice)
 		if handleError(w, r, err) {
 			return
 		}
@@ -61,7 +61,7 @@ func dumper(hnd *LocalHashNDump) http.Handler {
 		downfilename := filename
 		if sliced {
 			downfilename = fmt.Sprintf("%s(%v-%v)%s",
-				noExt(filename), offset, size, path.Ext(filename))
+				noExt(filename), offset, slice, path.Ext(filename))
 		}
 		w.Header().Set("Content-Disposition",
 			fmt.Sprintf("attachment; filename=\"%s\"", downfilename))
@@ -84,7 +84,7 @@ func readArgs(w http.ResponseWriter, r *http.Request) (f string, o, s int64, e e
 		return "", 0, 0, fmt.Errorf("Expected filename argument!")
 	}
 	offset := r.FormValue("offset")
-	size := r.FormValue("size")
+	slice := r.FormValue("slice")
 	o = 0
 	s = AUTOSIZE
 	if offset != "" {
@@ -94,8 +94,8 @@ func readArgs(w http.ResponseWriter, r *http.Request) (f string, o, s int64, e e
 		}
 		o = i
 	}
-	if size != "" {
-		i, err := strconv.ParseInt(size, 10, 64)
+	if slice != "" {
+		i, err := strconv.ParseInt(slice, 10, 64)
 		if err != nil {
 			return "", 0, 0, err
 		}
@@ -178,6 +178,6 @@ func shortUrl(server, context, filename string) string {
 
 // serviceUrl returns the proper service Url for a server, method, filename, pos and slice
 func fullUrl(server, context, filename string, pos, slice int64) string {
-	return fmt.Sprintf("http://%s/%s%s?offset=%v&size=%v",
+	return fmt.Sprintf("http://%s/%s%s?offset=%v&slice=%v",
 		server, context, filename, pos, slice)
 }
