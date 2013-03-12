@@ -109,9 +109,11 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 	// 1+2+3) localcopy + diffs + remote hash
 	hashch := make(chan hashback)
 	copych := make(chan error)
-	var diffs *Diffs
-	if slice == 0 || !exists(alike) { // no diff		
-		diffs = NewDiffs(server, filename, alike, slice, AUTOSIZE)
+	diffs := NewDiffs(server, filename, alike, slice, AUTOSIZE)
+	// remote hash
+	go hashnback(diffs, filename, 0, AUTOSIZE, hashch)
+	if slice == 0 || !exists(alike) { // no diffs
+		diffs.Diffs=append(diffs.Diffs,Diff{0,AUTOSIZE})
 	} else {
 		// filecopy
 		go func(destfile, alike string, ch chan error) {
@@ -129,8 +131,7 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 			return nil, err
 		}
 	}
-	// remote hash
-	go hashnback(diffs, filename, 0, AUTOSIZE, hashch)
+	
 	// 4) download
 	downloaded, err := Download(dst, diffs)
 	if err != nil {

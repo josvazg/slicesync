@@ -24,8 +24,8 @@ func main() {
 	var to, alike string
 	var slice int64
 	if len(os.Args) < 3 {
-		fmt.Printf(
-			"Usage: %v {server} {filename} [-to destination] [-alike localAlike] [-slice bytes, default=1MB]\n",
+		fmt.Printf("Usage: %v {server} {filename} "+
+			"[-to destination] [-alike localAlike] [-slice bytes, default=1MB]\n",
 			os.Args[0])
 		return
 	}
@@ -52,7 +52,8 @@ func main() {
 		fmt.Fprint(os.Stderr, err.Error()+"\n")
 		return
 	}
-	fmt.Printf("slicesync\nhttp://%s/dump/%s -> %s %s\n[slice=%v]\n", server, filename, d, a, slice)
+	fmt.Printf("slicesync\nhttp://%s/dump/%s -> %s \nalike='%s'\n[slice=%v]\n", 
+		server, filename, d, a, slice)
 	diffs, err := slicesync.Slicesync(server, filename, to, alike, slice)
 	if err != nil {
 		fmt.Fprint(os.Stderr, err.Error()+"\n")
