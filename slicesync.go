@@ -113,7 +113,7 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 	// remote hash
 	go hashnback(diffs, filename, 0, AUTOSIZE, hashch)
 	if slice == 0 || !exists(alike) { // no diffs
-		diffs.Diffs=append(diffs.Diffs,Diff{0,AUTOSIZE})
+		diffs.Diffs = append(diffs.Diffs, Diff{0, AUTOSIZE})
 	} else {
 		// filecopy
 		go func(destfile, alike string, ch chan error) {
@@ -123,7 +123,6 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 		// diff
 		var err error
 		diffs, err = CalcDiffs(server, filename, alike, slice)
-		fmt.Println("Diffs=",diffs)
 		if err != nil {
 			return nil, err
 		}
@@ -132,7 +131,6 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 			return nil, err
 		}
 	}
-	
 	// 4) download
 	downloaded, err := Download(dst, diffs)
 	if err != nil {
@@ -182,8 +180,11 @@ func Download(dst string, diffs *Diffs) (int64, error) {
 
 // hashnback does a RHash and returns the hashback result through the given channel
 func hashnback(rhnd HashNDumper, filename string, pos, slice int64, ch chan hashback) {
-	r, err := rhnd.Hash(filename, pos, slice)
-	ch <- hashback{HashInfo{r.Size,r.Offset,r.Slice,r.Hash}, err}
+	if r, err := rhnd.Hash(filename, pos, slice); err == nil {
+		ch <- hashback{HashInfo{r.Size, r.Offset, r.Slice, r.Hash}, nil}
+	} else {
+		ch <- hashback{err: err}
+	}
 }
 
 // writeAt opens a file to write at position pos, ensuring the file is big enough
