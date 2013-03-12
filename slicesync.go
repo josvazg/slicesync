@@ -1,6 +1,7 @@
 package slicesync
 
 import (
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -91,8 +92,9 @@ func CalcDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
 // 7. Return the Diffs
 //
 // * Steps 1-3 are completely independent, so they are run on different goroutines
-// * Step 4 (download) depends on 1 (local copy) and 2 (diffs)
-// * Step 5 (local hash) depends on 4 (download)
+// * Steps 4+5 can be done concurrently, taking some care:
+//   * Step 4 (download) depends on 1 (local copy) and 2 (diffs)
+//   * Step 5 (local hash) depends on 4 but can be done by phases just as the download progresses
 // * Step 6 depends on 5 (local hash) and 3 (remote hash)
 //
 func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, error) {
@@ -107,11 +109,11 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 		alike = dst
 	}
 	// 1+2+3) localcopy + diffs + remote hash
-	hashch := make(chan hashback)
+	rhashch := make(chan hashback)
 	copych := make(chan error)
 	diffs := NewDiffs(server, filename, alike, slice, AUTOSIZE)
 	// remote hash
-	go hashnback(diffs, filename, 0, AUTOSIZE, hashch)
+	go hashnback(diffs, filename, 0, AUTOSIZE, rhashch)
 	if slice == 0 || !exists(alike) { // no diffs
 		diffs.Diffs = append(diffs.Diffs, Diff{0, AUTOSIZE})
 	} else {
@@ -131,24 +133,29 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 			return nil, err
 		}
 	}
-	// 4) download
-	downloaded, err := Download(dst, diffs)
+	// short-circuit if there is nothing to download (so there is nothing to check either)
+	if len(diffs.Diffs) == 0 {
+		return diffs, nil
+	}
+	// 4+5) download sends progress updates to local hash so that it can hash what's already done
+	progressch := make(chan int64)
+	lhashch := make(chan hashback)
+	go hashWithProgress(dst, diffs.Size, progressch, lhashch)
+	downloaded, err := Download(dst, diffs, progressch)
 	if err != nil {
 		return nil, err
 	}
 	if diffs.Differences == 0 && diffs.Size == AUTOSIZE && len(diffs.Diffs) == 1 {
 		diffs.Differences, diffs.Size = downloaded, downloaded
 	}
-	// 5) local hash
-	hnd := &LocalHashNDump{"."}
-	local, err := hnd.Hash(dst, 0, AUTOSIZE)
-	if err != nil {
-		return nil, err
-	}
 	// 6) check
-	remote := <-hashch
+	remote := <-rhashch
 	if remote.err != nil {
 		return nil, remote.err
+	}
+	local := <-lhashch
+	if local.err != nil {
+		return nil, local.err
 	}
 	if local.Hash != remote.Hash {
 		return nil, fmt.Errorf("Hash error, expected '%s' but got '%s'!", local.Hash, remote.Hash)
@@ -158,7 +165,10 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (*Diffs, e
 
 // Download gets the remote file described in Diffs and saves into dst
 // (dst may exist as Download will only fill differences)
-func Download(dst string, diffs *Diffs) (int64, error) {
+func Download(dst string, diffs *Diffs, progressch chan int64) (int64, error) {
+	if progressch != nil {
+		defer close(progressch)
+	}
 	downloaded := int64(0)
 	for _, diff := range diffs.Diffs {
 		orig, err := diffs.Dump(diffs.Filename, diff.Offset, diff.Size)
@@ -174,17 +184,49 @@ func Download(dst string, diffs *Diffs) (int64, error) {
 			return downloaded, err
 		}
 		downloaded += done
+		if progressch != nil {
+			progressch <- (diff.Offset + done)
+		}
 	}
 	return downloaded, nil
 }
 
-// hashnback does a RHash and returns the hashback result through the given channel
+// hashnback does a Remote Hash and returns the hashback result through the given channel
 func hashnback(rhnd HashNDumper, filename string, pos, slice int64, ch chan hashback) {
 	if r, err := rhnd.Hash(filename, pos, slice); err == nil {
 		ch <- hashback{HashInfo{r.Size, r.Offset, r.Slice, r.Hash}, nil}
 	} else {
 		ch <- hashback{err: err}
 	}
+}
+
+// hashWithProgress does a local Hash and returns the hashback result through the given channel,
+// hash calculus advances only as progress updates get through progressch
+func hashWithProgress(filename string, size int64, progressch chan int64, ch chan hashback) {
+	file, err := os.Open(filename) // For read access
+	if err != nil {
+		ch <- hashback{err: err}
+		return
+	}
+	defer file.Close()
+	pos, progressed := int64(0), int64(0)
+	h := sha1.New()
+	for pos < size {
+		progressed = <-progressch
+		if progressed == 0 || progressed > size { // process the rest
+			progressed = size
+		}
+		if progressed > pos {
+			toread := progressed - pos
+			if _, err = io.CopyN(h, file, toread); err != nil {
+				ch <- hashback{err: err}
+				return
+			}
+			pos = progressed
+		}
+	}
+	hash := "sha1-" + fmt.Sprintf("%x", h.Sum(nil))
+	ch <- hashback{HashInfo{size, 0, size, hash}, nil}
 }
 
 // writeAt opens a file to write at position pos, ensuring the file is big enough
@@ -205,7 +247,11 @@ func writeAt(filename string, pos int64) (io.WriteCloser, error) {
 }
 
 // filecopy opens and copies file 'from' to file 'to' completely
+// if to==from it short-curcuits and returns (0,nil)
 func filecopy(to, from string) (int64, error) {
+	if to == from {
+		return 0, nil
+	}
 	fromfile, err := os.Open(from)
 	if err != nil {
 		return 0, err
