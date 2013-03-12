@@ -23,18 +23,17 @@ func pct(bytes, total int64) float64 {
 func main() {
 	var to, alike string
 	var slice int64
-	if len(os.Args) < 3 {
-		fmt.Printf("Usage: %v {server} {filename} "+
-			"[-to destination] [-alike localAlike] [-slice bytes, default=1MB]\n",
-			os.Args[0])
-		return
-	}
-	server := os.Args[1]
-	filename := os.Args[2]
 	flag.StringVar(&to, "to", "", "(Optional) Local destination")
 	flag.StringVar(&alike, "alike", "", "(Optional) Local similar, previous or look-alike file")
 	flag.Int64Var(&slice, "slice", 10485760, "(Optional) Slice size")
 	flag.Parse()
+	if len(flag.Args()) < 2 {
+		fmt.Printf("Usage: %v [-to destination] [-alike localAlike] [-slice bytes, default=1MB]"+
+			"{server} {filename}\n", os.Args[0])
+		return
+	}
+	server := flag.Arg(0)
+	filename := flag.Arg(1)
 	if server == "" || filename == "" {
 		flag.PrintDefaults()
 		return
@@ -52,7 +51,7 @@ func main() {
 		fmt.Fprint(os.Stderr, err.Error()+"\n")
 		return
 	}
-	fmt.Printf("slicesync\nhttp://%s/dump/%s -> %s \nalike='%s'\n[slice=%v]\n", 
+	fmt.Printf("slicesync\nhttp://%s/dump/%s -> %s \n%s\n[slice=%v]\n",
 		server, filename, d, a, slice)
 	diffs, err := slicesync.Slicesync(server, filename, to, alike, slice)
 	if err != nil {
