@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/josvazg/slicesync"
+	"io"
 	"os"
 	"strconv"
 )
@@ -29,8 +30,12 @@ func main() {
 		if err != nil {
 			fmt.Fprint(os.Stderr, err.Error()+"\n")
 		}
-		hnd.BulkHash(os.Stdout, filename, slice)
-	} else {		
+		r, err := hnd.BulkHash(filename, slice)
+		if err != nil {
+			fmt.Fprint(os.Stderr, err.Error()+"\n")
+		}
+		io.Copy(os.Stdout, r)
+	} else {
 		fi, err := hnd.Hash(filename, 0, slicesync.AUTOSIZE)
 		if err != nil {
 			fmt.Fprint(os.Stderr, err.Error()+"\n")

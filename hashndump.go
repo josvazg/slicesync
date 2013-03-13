@@ -35,7 +35,7 @@ type HashInfo struct {
 // HashNDumper is the Service (local or remote) allowing slice based file synchronizations
 type HashNDumper interface {
 	Hash(filename string, offset, slice int64) (*HashInfo, error)
-	BulkHash(w io.Writer, filename string, slice int64)
+	BulkHash(filename string, slice int64) (io.ReadCloser, error)
 	Dump(filename string, offset, slice int64) (io.ReadCloser, error)
 }
 
@@ -48,36 +48,43 @@ type LocalHashNDump struct {
 //
 // Output is as follows:
 // first text line is the file size
-// then there are size/slice lines each with a slice hash for consecutive slices
+// then there are size / slice lines each with a slice hash for consecutive slices
 // finally there is the line "Final: "+total file hash
 //
-// Errors are dumped in-line starting as a "Error:".
-// Nothing more is sent after an error ocurrs and is dumped to w
-func (hnd *LocalHashNDump) BulkHash(w io.Writer, filename string, slice int64) {
+// Post initialization errors are dumped in-line starting as a "Error: "... line
+// Nothing more is sent after an error occurs and is dumped to w
+func (hnd *LocalHashNDump) BulkHash(filename string, slice int64) (rc io.ReadCloser, err error) {
 	file, err := os.Open(calcpath(hnd.Dir, filename)) // For read access
 	if err != nil {
-		fmt.Fprintf(w, "Error:%s\n", err)
-		return
+		return nil, err
 	}
-	defer file.Close()
-	if slice <= 0 {
+	if slice <= 0 { // protection against infinite loop by bad arguments
 		slice = MiB
 	}
 	fi, err := file.Stat()
 	if err != nil {
-		fmt.Fprintf(w, "Error:%s\n", err)
-		return
+		return nil, err
 	}
-	fmt.Fprintf(w, "%v\n", fi.Size())
-	if fi.Size() > 0 {
+	r, w := io.Pipe()
+	go bulkHashDump(w, file, slice, fi.Size())
+	return r, nil
+}
+
+// bulkHashDump produces BulkHash output into the piped writer
+func bulkHashDump(w io.WriteCloser, file io.ReadCloser, slice, size int64) {
+	defer file.Close()
+	defer w.Close()
+	fmt.Fprintf(w, "%v\n", size)
+	if size > 0 {
 		h := sha1.New()
 		sliceHash := sha1.New()
 		hashSink := io.MultiWriter(h, sliceHash)
 		readed := int64(0)
-		for pos := int64(0); pos < fi.Size(); pos += readed {
+		var err error
+		for pos := int64(0); pos < size; pos += readed {
 			toread := slice
-			if toread > (fi.Size() - pos) {
-				toread = (fi.Size() - pos)
+			if toread > (size - pos) {
+				toread = size - pos
 			}
 			readed, err = io.CopyN(hashSink, file, toread)
 			if err != nil {

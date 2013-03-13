@@ -52,7 +52,11 @@ func bulkhasher(hnd *LocalHashNDump) http.Handler {
 		if handleError(w, r, err) {
 			return
 		}
-		hnd.BulkHash(w, filename, slice)
+		in, err := hnd.BulkHash(filename, slice)
+		if handleError(w, r, err) {
+			return
+		}
+		io.Copy(w, in)
 	})
 }
 
@@ -149,19 +153,9 @@ func (rhnd *RemoteHashNDump) Hash(filename string, pos, slice int64) (*HashInfo,
 	return &hi, nil
 }
 
-// BulkHash returns the hash stream of slices
-func (rhnd *RemoteHashNDump) BulkHash(w io.Writer, filename string, slice int64) {
-	r, err := open(bulkUrl(rhnd.Server, "bulkhash/", filename, slice))
-	if err != nil {
-		fmt.Fprintf(w, "Error:%s\n", err)
-		return
-	}
-	defer r.Close()
-	_, err = io.Copy(w, r)
-	if err != nil {
-		fmt.Fprintf(w, "Error:%s\n", err)
-		return
-	}
+// BulkHash returns the remote stream of hash slices
+func (rhnd *RemoteHashNDump) BulkHash(filename string, slice int64) (io.ReadCloser, error) {
+	return open(bulkUrl(rhnd.Server, "bulkhash/", filename, slice))
 }
 
 // Dump returns the hash of a remote file slice
@@ -185,7 +179,7 @@ func read(url string) ([]byte, error) {
 	return buf[:readed], nil
 }
 
-// open opens a remote URL incoming stream
+// open a remote URL incoming stream
 func open(url string) (io.ReadCloser, error) {
 	//fmt.Printf("ROpen %s\n", url)
 	resp, err := http.Get(url)
@@ -198,7 +192,7 @@ func open(url string) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
-// serviceUrl returns the proper service Url for a server, method, filename, pos and slice
+// fullUrl returns the proper service Url for a server, method, filename, pos and slice
 func fullUrl(server, context, filename string, pos, slice int64) string {
 	return fmt.Sprintf("http://%s/%s%s?offset=%v&slice=%v",
 		server, context, filename, pos, slice)
