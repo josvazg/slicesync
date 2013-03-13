@@ -22,6 +22,7 @@ func HashNDumpServer(port int, dir string) {
 func SetupHashNDump(hnd *LocalHashNDump) {
 	http.HandleFunc("/favicon.ico", http.NotFound)
 	http.Handle("/hash/", http.StripPrefix("/hash/", hasher(hnd)))
+	http.Handle("/bulkhash/", http.StripPrefix("/bulkhash/", bulkhasher(hnd)))
 	http.Handle("/dump/", http.StripPrefix("/dump/", dumper(hnd)))
 }
 
@@ -41,6 +42,17 @@ func hasher(hnd *LocalHashNDump) http.Handler {
 			return
 		}
 		w.Write(json)
+	})
+}
+
+// bulkhasher returns a rest/http request handler to return bulkhash stream
+func bulkhasher(hnd *LocalHashNDump) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		filename, _, slice, err := readArgs(w, r)
+		if handleError(w, r, err) {
+			return
+		}
+		hnd.BulkHash(w, filename, slice)
 	})
 }
 
@@ -137,6 +149,21 @@ func (rhnd *RemoteHashNDump) Hash(filename string, pos, slice int64) (*HashInfo,
 	return &hi, nil
 }
 
+// BulkHash returns the hash stream of slices
+func (rhnd *RemoteHashNDump) BulkHash(w io.Writer, filename string, slice int64) {
+	r, err := open(bulkUrl(rhnd.Server, "bulkhash/", filename, slice))
+	if err != nil {
+		fmt.Fprintf(w, "Error:%s\n", err)
+		return
+	}
+	defer r.Close()
+	_, err = io.Copy(w, r)
+	if err != nil {
+		fmt.Fprintf(w, "Error:%s\n", err)
+		return
+	}
+}
+
 // Dump returns the hash of a remote file slice
 func (rhnd *RemoteHashNDump) Dump(filename string, pos, slice int64) (io.ReadCloser, error) {
 	return open(fullUrl(rhnd.Server, "dump/", filename, pos, slice))
@@ -171,13 +198,13 @@ func open(url string) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
-// shortUrl returns the proper short service Url for a server, method and filename
-func shortUrl(server, context, filename string) string {
-	return fmt.Sprintf("http://%s/%s%s", server, context, filename)
-}
-
 // serviceUrl returns the proper service Url for a server, method, filename, pos and slice
 func fullUrl(server, context, filename string, pos, slice int64) string {
 	return fmt.Sprintf("http://%s/%s%s?offset=%v&slice=%v",
 		server, context, filename, pos, slice)
+}
+
+// bulkUrl returns the bulk url service Url for bulkhash
+func bulkUrl(server, context, filename string, slice int64) string {
+	return fmt.Sprintf("http://%s/%s%s?slice=%v", server, context, filename, slice)
 }

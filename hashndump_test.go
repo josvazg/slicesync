@@ -29,7 +29,7 @@ var tests = []struct {
 }
 
 func TestSlices(t *testing.T) {
-	hnd:=&slicesync.LocalHashNDump{"."}
+	hnd := &slicesync.LocalHashNDump{Dir: "."}
 	writeFile(t, "testfile.txt", testfile)
 	for i, test := range tests {
 		dmp, err := hnd.Dump(test.filename, test.start, test.len)

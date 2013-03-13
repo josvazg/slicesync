@@ -11,6 +11,7 @@ import (
 
 const (
 	AUTOSIZE = 0 // Use AUTOSIZE when you don't know or care for the total file or slice size 
+	MiB      = 1048576
 )
 
 // LimitedReadCloser reads just N bytes from a reader and allows to close it as well
@@ -34,12 +35,60 @@ type HashInfo struct {
 // HashNDumper is the Service (local or remote) allowing slice based file synchronizations
 type HashNDumper interface {
 	Hash(filename string, offset, slice int64) (*HashInfo, error)
+	BulkHash(w io.Writer, filename string, slice int64)
 	Dump(filename string, offset, slice int64) (io.ReadCloser, error)
 }
 
 // LocalHashNDump implements the HashNDump Service locally
 type LocalHashNDump struct {
 	Dir string
+}
+
+// BulkHash calculates the file hash and all hashes of size slice and writes them to w
+//
+// Output is as follows:
+// first text line is the file size
+// then there are size/slice lines each with a slice hash for consecutive slices
+// finally there is the line "Final: "+total file hash
+//
+// Errors are dumped in-line starting as a "Error:".
+// Nothing more is sent after an error ocurrs and is dumped to w
+func (hnd *LocalHashNDump) BulkHash(w io.Writer, filename string, slice int64) {
+	file, err := os.Open(calcpath(hnd.Dir, filename)) // For read access
+	if err != nil {
+		fmt.Fprintf(w, "Error:%s\n", err)
+		return
+	}
+	defer file.Close()
+	if slice <= 0 {
+		slice = MiB
+	}
+	fi, err := file.Stat()
+	if err != nil {
+		fmt.Fprintf(w, "Error:%s\n", err)
+		return
+	}
+	fmt.Fprintf(w, "%v\n", fi.Size())
+	if fi.Size() > 0 {
+		h := sha1.New()
+		sliceHash := sha1.New()
+		hashSink := io.MultiWriter(h, sliceHash)
+		readed := int64(0)
+		for pos := int64(0); pos < fi.Size(); pos += readed {
+			toread := slice
+			if toread > (fi.Size() - pos) {
+				toread = (fi.Size() - pos)
+			}
+			readed, err = io.CopyN(hashSink, file, toread)
+			if err != nil {
+				fmt.Fprintf(w, "Error:%s\n", err)
+				return
+			}
+			fmt.Fprintf(w, "%x\n", sliceHash.Sum(nil))
+			sliceHash.Reset()
+		}
+		fmt.Fprintf(w, "Final: %x\n", h.Sum(nil))
+	}
 }
 
 // Hash returns the Hash (sha-1) for a file slice or the full file
@@ -111,7 +160,7 @@ func dump(filename string, offset, slice int64) *LimitedReadCloser {
 	fi, err := file.Stat()
 	autopanic(err)
 	toread := sliceFile(file, fi.Size(), offset, slice)
-	return &LimitedReadCloser{io.LimitedReader{file, toread}}
+	return &LimitedReadCloser{io.LimitedReader{R: file, N: toread}}
 }
 
 // sliceFile positions to the offset pos of file and prepares to read up to slice bytes of it.
