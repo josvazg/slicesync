@@ -229,7 +229,7 @@ func readAttribute(r *bufio.Reader, name string) (string, error) {
 	if !strings.HasPrefix(data, name+":") {
 		return "", fmt.Errorf(name+": expected, but got %s!", data)
 	}
-	return strings.Trim(data[0:len(name)+1], " \n"), nil
+	return strings.Trim(data[len(name)+1:], " \n"), nil
 }
 
 // min returns the minimum int64 between a and b
