@@ -20,7 +20,7 @@ func pct(bytes, total int64) float64 {
 }
 
 func main() {
-	if len(os.Args) < 2 {
+	if len(os.Args) < 4 {
 		fmt.Printf(
 			"Usage: %v {server} {filename} {local alike} (optional slice, 1MB by default)\n",
 			os.Args[0])
@@ -32,8 +32,8 @@ func main() {
 	slice := int64(MiB)
 	if len(os.Args) > 4 {
 		var err error
-		slice,err=strconv.ParseInt(os.Args[4], 10, 64)
-		if err!=nil {
+		slice, err = strconv.ParseInt(os.Args[4], 10, 64)
+		if err != nil {
 			fmt.Println(err)
 			return
 		}
