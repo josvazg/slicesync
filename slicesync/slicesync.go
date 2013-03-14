@@ -25,7 +25,7 @@ func main() {
 	var slice int64
 	flag.StringVar(&to, "to", "", "(Optional) Local destination")
 	flag.StringVar(&alike, "alike", "", "(Optional) Local similar, previous or look-alike file")
-	flag.Int64Var(&slice, "slice", 10485760, "(Optional) Slice size")
+	flag.Int64Var(&slice, "slice", MiB, "(Optional) Slice size")
 	flag.Parse()
 	if len(flag.Args()) < 2 {
 		fmt.Printf("Usage: %v [-to destination] [-alike localAlike] [-slice bytes, default=1MB]"+

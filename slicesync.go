@@ -112,6 +112,9 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (diffs *Di
 	}
 	// 2. Run calcDiffs with mixerfn (will call "3. That mixerfn..." inside for each slice)
 	diffs, err = calcDiffs(server, filename, alike, slice, fn)
+	if source != nil {
+		source.Close()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +174,12 @@ func calcDiffs(server, filename, alike string, slice int64, fn mixerfn) (*Diffs,
 // diffLoop builds the diffs from the hash streams
 func diffLoop(diffs *Diffs, local, remote *bufio.Reader, lsize, rsize int64, fn mixerfn) error {
 	indiff := false
-	for pos := int64(0); pos < min(lsize, rsize); pos += diffs.Slice {
+	end := min(lsize, rsize)
+	segment := diffs.Slice
+	for pos := int64(0); pos < end; pos += segment {
+		if pos+segment > end {
+			segment = end - pos
+		}
 		localHash, err := readString(local)
 		if err != nil {
 			return err
@@ -184,17 +192,22 @@ func diffLoop(diffs *Diffs, local, remote *bufio.Reader, lsize, rsize int64, fn 
 			if localHash == remoteHash {
 				indiff = false
 			} else {
-				diffs.Diffs[len(diffs.Diffs)-1].Size += diffs.Slice
-				diffs.Differences += diffs.Slice
+				diffs.Diffs[len(diffs.Diffs)-1].Size += segment
+				diffs.Differences += segment
 			}
 		} else if localHash != remoteHash {
-			diffs.Diffs = append(diffs.Diffs, Diff{pos, diffs.Slice})
-			diffs.Differences += diffs.Slice
+			diffs.Diffs = append(diffs.Diffs, Diff{pos, segment})
+			diffs.Differences += segment
 			indiff = true
 		}
 		if fn != nil {
-			fn(pos, indiff)
+			fn(pos+segment, indiff)
 		}
+	}
+	if lsize < rsize {
+		remaining := rsize - lsize
+		diffs.Diffs = append(diffs.Diffs, Diff{lsize, remaining})
+		diffs.Differences += remaining
 	}
 	return nil
 }
