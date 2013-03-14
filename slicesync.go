@@ -83,7 +83,6 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (diffs *Di
 	sink := io.MultiWriter(file, h)
 	done := int64(0)
 	var source io.ReadCloser
-	wasInDiff := false
 	localHnd := &LocalHashNDump{"."}
 	remoteHnd := &RemoteHashNDump{server}
 	// 3. That mixerfn is called after each diff slice is processed
@@ -92,22 +91,22 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (diffs *Di
 		if pos < done {
 			return fmt.Errorf("Expected pos>%v but got %v!", done, pos)
 		}
-		if source == nil || wasInDiff != indiff {
-			if source != nil {
-				source.Close()
-			}
-			if indiff {
-				source, err = remoteHnd.Dump(filename, done, AUTOSIZE)
-			} else {
-				source, err = localHnd.Dump(alike, done, AUTOSIZE)
-			}
-			if err != nil {
-				return
-			}
-			wasInDiff = indiff
+		toread := pos - done
+		if indiff {
+			fmt.Println("Download from", done, " to ", pos)
+			source, err = remoteHnd.Dump(filename, done, toread)
+		} else {
+			fmt.Println("Copy from", done, " to ", pos)
+			source, err = localHnd.Dump(alike, done, toread)
 		}
-		io.CopyN(sink, source, (pos - done))
+		if err != nil {
+			return
+		}
+		io.CopyN(sink, source, toread)
+		source.Close()
+		file.Sync()
 		done = pos
+		fmt.Println("Done ", done)
 		return nil
 	}
 	// 2. Run calcDiffs with mixerfn (will call "3. That mixerfn..." inside for each slice)
@@ -121,7 +120,7 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (diffs *Di
 	// 4. The diff remote hash is checked against the local dumped hash
 	localHash := fmt.Sprintf("%x", h.Sum(nil))
 	if localHash != diffs.Hash {
-		return nil, fmt.Errorf("Hash check failed: expected %x but got %x!", diffs.Hash, localHash)
+		return nil, fmt.Errorf("Hash check failed: expected %v but got %v!", diffs.Hash, localHash)
 	}
 	// 5. If all is well the generated diff is returned
 	return diffs, err

@@ -53,7 +53,7 @@ func main() {
 	}
 	fmt.Printf("slicesync\nhttp://%s/dump/%s -> %s \n%s\n[slice=%v]\n",
 		server, filename, d, a, slice)
-	diffs, err := slicesync.Slicesync(server, filename, to, alike, slice)
+	diffs, err := slicesync.Slicesync(server, filename, d, alike, slice)
 	if err != nil {
 		fmt.Fprint(os.Stderr, err.Error()+"\n")
 		return
