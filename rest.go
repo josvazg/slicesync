@@ -165,7 +165,7 @@ func (rhnd *RemoteHashNDump) Dump(filename string, pos, slice int64) (io.ReadClo
 	if err != nil {
 		return nil, 0, err
 	}
-	N, err := strconv.ParseInt(r.Header.Get("Content-Type"), 10, 64)
+	N, err := strconv.ParseInt(r.Header.Get("Content-Length"), 10, 64)
 	if err != nil {
 		return nil, 0, err
 	}
