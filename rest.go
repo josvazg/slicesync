@@ -68,11 +68,11 @@ func dumper(hnd *LocalHashNDump) http.Handler {
 			return
 		}
 		sliced := !(offset == 0 && slice == 0)
-		sliceData, err := hnd.Dump(filename, offset, slice)
+		sliceData, N, err := hnd.Dump(filename, offset, slice)
 		if handleError(w, r, err) {
 			return
 		}
-		w.Header().Set("Content-Length", fmt.Sprintf("%v", sliceData.N))
+		w.Header().Set("Content-Length", fmt.Sprintf("%v", N))
 		w.Header().Set("Content-Type", "application/octet-stream")
 		downfilename := filename
 		if sliced {
@@ -155,18 +155,27 @@ func (rhnd *RemoteHashNDump) Hash(filename string, pos, slice int64) (*HashInfo,
 
 // BulkHash returns the remote stream of hash slices
 func (rhnd *RemoteHashNDump) BulkHash(filename string, slice int64) (io.ReadCloser, error) {
-	return open(bulkUrl(rhnd.Server, "bulkhash/", filename, slice))
+	r, _, e := open(bulkUrl(rhnd.Server, "bulkhash/", filename, slice))
+	return r, e
 }
 
 // Dump returns the hash of a remote file slice
-func (rhnd *RemoteHashNDump) Dump(filename string, pos, slice int64) (io.ReadCloser, error) {
-	return open(fullUrl(rhnd.Server, "dump/", filename, pos, slice))
+func (rhnd *RemoteHashNDump) Dump(filename string, pos, slice int64) (io.ReadCloser, int64, error) {
+	rc, r, err := open(fullUrl(rhnd.Server, "dump/", filename, pos, slice))
+	if err != nil {
+		return nil, 0, err
+	}
+	N, err := strconv.ParseInt(r.Header.Get("Content-Type"), 10, 64)
+	if err != nil {
+		return nil, 0, err
+	}
+	return rc, N, err
 }
 
 // read opens (ROpen) a remote URL and reads the body contents into a byte slice
 func read(url string) ([]byte, error) {
 	//fmt.Printf("RRead %s\n", url)
-	r, err := open(url)
+	r, _, err := open(url)
 	if err != nil {
 		return nil, err
 	}
@@ -180,16 +189,16 @@ func read(url string) ([]byte, error) {
 }
 
 // open a remote URL incoming stream
-func open(url string) (io.ReadCloser, error) {
+func open(url string) (io.ReadCloser, *http.Response, error) {
 	//fmt.Printf("ROpen %s\n", url)
 	resp, err := http.Get(url)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("Error " + resp.Status + " connecting to " + url)
+		return nil, nil, fmt.Errorf("Error " + resp.Status + " connecting to " + url)
 	}
-	return resp.Body, nil
+	return resp.Body, resp, nil
 }
 
 // fullUrl returns the proper service Url for a server, method, filename, pos and slice

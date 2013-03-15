@@ -2,7 +2,6 @@ package slicesync
 
 import (
 	"bufio"
-	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -65,65 +64,75 @@ func CalcDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
 // slice is the size of each of the slices to sync
 //
 // Algorithm:
-// 1. Prepare the mixerfn
-// 2. Run calcDiffs (just like CalcDiffs BUT passing it mixerfn to process each slice)
-// 3. That mixerfn is called after each diff slice is processed:
-//    It decides to copy that slice from local or remote and updates the generated hash
-// 4. The diff remote hash is checked against the local dumped hash
-// 5. If all is well the generated diff is returned
+// 1. Run CalcDiffs
+// 2. Download diffs
+// 3. Check local & remote hash
+// 4. If all is well the generated diff is returned
 //
 func Slicesync(server, filename, destfile, alike string, slice int64) (diffs *Diffs, err error) {
+	// 1. CalcDiffs
+	diffs, err = CalcDiffs(server, filename, alike, slice)
+	if err != nil {
+		return nil, err
+	}
+	// 2. Download
+	_, localHash, err := Download(destfile, diffs)
+	if err != nil {
+		return nil, err
+	}
+	// 3. Check hashes
+	if localHash != diffs.Hash {
+		return nil, fmt.Errorf("Hash check failed: expected %v but got %v!", diffs.Hash, localHash)
+	}
+	// 4. If all is well the generated diff is returned
+	return diffs, err
+}
+
+// Download a filename by differences into destfile
+func Download(destfile string, diffs *Diffs) (downloaded int64, hash string, err error) {
 	// 1. Prepare mixerfn
 	file, err := os.OpenFile(destfile, os.O_CREATE|os.O_WRONLY, 0750) // For write access
 	if err != nil {
 		return
 	}
 	defer file.Close()
-	h := sha1.New()
-	sink := io.MultiWriter(file, h)
-	done := int64(0)
+	h := newHasher()
 	var source io.ReadCloser
+	sink := io.MultiWriter(file, h)
 	localHnd := &LocalHashNDump{"."}
-	remoteHnd := &RemoteHashNDump{server}
-	// 3. That mixerfn is called after each diff slice is processed
-	//    It decides to copy that slice from local or remote and updates the generated hash
-	fn := func(pos int64, indiff bool) (err error) {
-		if pos < done {
-			return fmt.Errorf("Expected pos>%v but got %v!", done, pos)
-		}
-		toread := pos - done
-		if indiff {
-			fmt.Println("Download from", done, " to ", pos)
-			source, err = remoteHnd.Dump(filename, done, toread)
-		} else {
-			fmt.Println("Copy from", done, " to ", pos)
-			source, err = localHnd.Dump(alike, done, toread)
-		}
+	remoteHnd := &RemoteHashNDump{diffs.Server}
+	done := int64(0)
+	copyn := func(hnd HashNDumper, fromfile string, pos, toread int64) (int64, error) {
+		source, _, err = hnd.Dump(fromfile, pos, toread)
 		if err != nil {
-			return
+			return downloaded, err
 		}
-		io.CopyN(sink, source, toread)
-		source.Close()
-		file.Sync()
-		done = pos
-		fmt.Println("Done ", done)
-		return nil
+		defer source.Close()
+		return io.CopyN(sink, source, toread)
 	}
-	// 2. Run calcDiffs with mixerfn (will call "3. That mixerfn..." inside for each slice)
-	diffs, err = calcDiffs(server, filename, alike, slice, fn)
-	if source != nil {
-		source.Close()
+	for _, diff := range diffs.Diffs {
+		if diff.Offset > done {
+			_, err := copyn(localHnd, diffs.Alike, done, diff.Offset-done)
+			if err != nil {
+				return downloaded, "", err
+			}
+			done = diff.Offset
+		}
+		n, err := copyn(remoteHnd, diffs.Filename, done, diff.Size)
+		if err != nil {
+			return downloaded, "", err
+		}
+		downloaded += n
+		done += n
 	}
-	if err != nil {
-		return nil, err
+	if diffs.Size > done {
+		n, err := copyn(localHnd, diffs.Alike, done, diffs.Size-done)
+		if err != nil {
+			return downloaded, "", err
+		}
+		done += n
 	}
-	// 4. The diff remote hash is checked against the local dumped hash
-	localHash := fmt.Sprintf("%x", h.Sum(nil))
-	if localHash != diffs.Hash {
-		return nil, fmt.Errorf("Hash check failed: expected %v but got %v!", diffs.Hash, localHash)
-	}
-	// 5. If all is well the generated diff is returned
-	return diffs, err
+	return downloaded, fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 // calcDiffs returns the Diffs as specified by CalcDiffs but it also admits a mixer

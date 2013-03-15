@@ -1,7 +1,6 @@
 package slicesync
 
 import (
-	"crypto/sha1"
 	"fmt"
 	"io"
 	"os"
@@ -36,7 +35,7 @@ type HashInfo struct {
 type HashNDumper interface {
 	Hash(filename string, offset, slice int64) (*HashInfo, error)
 	BulkHash(filename string, slice int64) (io.ReadCloser, error)
-	Dump(filename string, offset, slice int64) (io.ReadCloser, error)
+	Dump(filename string, offset, slice int64) (io.ReadCloser, int64, error)
 }
 
 // LocalHashNDump implements the HashNDump Service locally
@@ -76,8 +75,8 @@ func bulkHashDump(w io.WriteCloser, file io.ReadCloser, slice, size int64) {
 	defer w.Close()
 	fmt.Fprintf(w, "%v\n", size)
 	if size > 0 {
-		h := sha1.New()
-		sliceHash := sha1.New()
+		h := newHasher()
+		sliceHash := newSliceHasher()
 		hashSink := io.MultiWriter(h, sliceHash)
 		readed := int64(0)
 		var err error
@@ -116,7 +115,7 @@ func (hnd *LocalHashNDump) Hash(filename string, offset, slice int64) (
 
 // Dump opens a file to read just a slice of it
 func (hnd *LocalHashNDump) Dump(filename string, offset, slice int64) (
-	rc *LimitedReadCloser, err error) {
+	rc io.ReadCloser, n int64, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
@@ -125,8 +124,8 @@ func (hnd *LocalHashNDump) Dump(filename string, offset, slice int64) (
 			err = r.(error)
 		}
 	}()
-	rc = dump(calcpath(hnd.Dir, filename), offset, slice)
-	return
+	lrc := dump(calcpath(hnd.Dir, filename), offset, slice)
+	return lrc, lrc.N, nil
 }
 
 // calcpath joins dir to filename to get a full path and panics if the result is not within dir
@@ -152,10 +151,10 @@ func hash(filename string, offset, slice int64) *HashInfo {
 	toread := sliceFile(file, fi.Size(), offset, slice)
 	hash := ""
 	if toread > 0 {
-		h := sha1.New()
+		h := newSliceHasher()
 		_, err = io.CopyN(h, file, toread)
 		autopanic(err)
-		hash = "sha1-" + fmt.Sprintf("%x", h.Sum(nil))
+		hash = fmt.Sprintf("%v-%x", sliceHasherName(), h.Sum(nil))
 	}
 	return &HashInfo{fi.Size(), offset, toread, hash}
 }
