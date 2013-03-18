@@ -1,6 +1,7 @@
 package slicesync
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -73,7 +74,9 @@ func (hnd *LocalHashNDump) BulkHash(filename string, slice int64) (rc io.ReadClo
 func bulkHashDump(w io.WriteCloser, file io.ReadCloser, slice, size int64) {
 	defer file.Close()
 	defer w.Close()
-	fmt.Fprintf(w, "%v\n", size)
+	bufW := bufio.NewWriterSize(w, MiB)
+	defer bufW.Flush()
+	fmt.Fprintf(bufW, "%v\n", size)
 	if size > 0 {
 		h := newHasher()
 		sliceHash := newSliceHasher()
@@ -87,13 +90,13 @@ func bulkHashDump(w io.WriteCloser, file io.ReadCloser, slice, size int64) {
 			}
 			readed, err = io.CopyN(hashSink, file, toread)
 			if err != nil {
-				fmt.Fprintf(w, "Error:%s\n", err)
+				fmt.Fprintf(bufW, "Error:%s\n", err)
 				return
 			}
-			fmt.Fprintf(w, "%x\n", sliceHash.Sum(nil))
+			fmt.Fprintf(bufW, "%x\n", sliceHash.Sum(nil))
 			sliceHash.Reset()
 		}
-		fmt.Fprintf(w, "Final: %x\n", h.Sum(nil))
+		fmt.Fprintf(bufW, "Final: %x\n", h.Sum(nil))
 	}
 }
 
