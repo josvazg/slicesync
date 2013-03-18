@@ -118,7 +118,7 @@ func (hnd *LocalHashNDump) Hash(filename string, offset, slice int64) (
 			err = r.(error)
 		}
 	}()
-	hi = hash(calcpath(hnd.Dir, filename), offset, slice)
+	hi = doHash(calcpath(hnd.Dir, filename), offset, slice)
 	return
 }
 
@@ -150,8 +150,8 @@ func calcpath(dir, filename string) string {
 	return fullpath
 }
 
-// hash is the internal function that calculates the local hash of the given slice of filename
-func hash(filename string, offset, slice int64) *HashInfo {
+// doHash is the internal function that calculates the local hash of the given slice of filename
+func doHash(filename string, offset, slice int64) *HashInfo {
 	file, err := os.Open(filename) // For read access
 	autopanic(err)
 	defer file.Close()

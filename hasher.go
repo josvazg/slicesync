@@ -2,7 +2,7 @@ package slicesync
 
 import (
 	"crypto/sha1"
-	hsh "hash"
+	"hash"
 )
 
 // hasherName returns the implementation name of the whole file hasher
@@ -11,7 +11,7 @@ func hasherName() string {
 }
 
 // newHasher returns a Hash implementation for the whole file (usually SHA1)
-func newHasher() hsh.Hash {
+func newHasher() hash.Hash {
 	return sha1.New()
 }
 
@@ -22,6 +22,6 @@ func sliceHasherName() string {
 
 // newSliceHasher returns a Hash implementation for each slice 
 // (SHA1 on naive implementation or rolling+hash in rsync's symulation)
-func newSliceHasher() hsh.Hash {
+func newSliceHasher() hash.Hash {
 	return sha1.New()
 }

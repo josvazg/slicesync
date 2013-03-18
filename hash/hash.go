@@ -37,7 +37,7 @@ func main() {
 		}
 		io.Copy(os.Stdout, r)
 	} else {
-		fmt.Printf("Hash dump (.slicezync file) for %v...\n", filename)
+		fmt.Printf("Hash dump (.slicesync file) for %v...\n", filename)
 		fi, err := hnd.Hash(filename, 0, slicesync.AUTOSIZE)
 		if err != nil {
 			fmt.Fprint(os.Stderr, err.Error()+"\n")
