@@ -2,6 +2,7 @@ package slicesync
 
 import (
 	"bufio"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 const (
 	AUTOSIZE = 0 // Use AUTOSIZE when you don't know or care for the total file or slice size 
 	MiB      = 1048576
+	Version  = "0.0.1"
 )
 
 // LimitedReadCloser reads just N bytes from a reader and allows to close it as well
@@ -66,17 +68,20 @@ func (hnd *LocalHashNDump) BulkHash(filename string, slice int64) (rc io.ReadClo
 		return nil, err
 	}
 	r, w := io.Pipe()
-	go bulkHashDump(w, file, slice, fi.Size())
+	go bulkHashDump(w, file, filename, slice, fi.Size())
 	return r, nil
 }
 
 // bulkHashDump produces BulkHash output into the piped writer
-func bulkHashDump(w io.WriteCloser, file io.ReadCloser, slice, size int64) {
+func bulkHashDump(w io.WriteCloser, file io.ReadCloser, filename string, slice, size int64) {
 	defer file.Close()
 	defer w.Close()
-	bufW := bufio.NewWriterSize(w, MiB)
+	bufW := bufio.NewWriterSize(w, 1024)
 	defer bufW.Flush()
-	fmt.Fprintf(bufW, "%v\n", size)
+	fmt.Fprintf(bufW, "Version: %v\n", Version)
+	fmt.Fprintf(bufW, "Filename: %v\n", filename)
+	fmt.Fprintf(bufW, "Slice: %v\n", slice)
+	fmt.Fprintf(bufW, "Length: %v\n", size)
 	if size > 0 {
 		h := newHasher()
 		sliceHash := newSliceHasher()
@@ -93,10 +98,11 @@ func bulkHashDump(w io.WriteCloser, file io.ReadCloser, slice, size int64) {
 				fmt.Fprintf(bufW, "Error:%s\n", err)
 				return
 			}
-			fmt.Fprintf(bufW, "%x\n", sliceHash.Sum(nil))
+			fmt.Fprintf(bufW, "%s\n", base64.StdEncoding.EncodeToString(sliceHash.Sum(nil)))
 			sliceHash.Reset()
+			bufW.Flush()
 		}
-		fmt.Fprintf(bufW, "Final: %x\n", h.Sum(nil))
+		fmt.Fprintf(bufW, "%v: %x\n", hasherName(), h.Sum(nil))
 	}
 }
 
