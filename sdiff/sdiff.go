@@ -44,5 +44,5 @@ func main() {
 		fmt.Fprint(os.Stderr, err.Error()+"\n")
 		return
 	}
-	fmt.Println(diffs)
+	fmt.Println(diffs.Print())
 }

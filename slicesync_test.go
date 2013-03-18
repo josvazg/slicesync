@@ -22,14 +22,14 @@ var synctests = []struct {
 	filename, content  string
 	slice, differences int64
 }{
-	{"testfile2.txt", likefile, 10, 30},     // 0
-	{"testfile2.txt", likefile, 1000, 1000}, // 1
+	{"testfile2.txt", likefile, 10, 30},   // 0
+	{"testfile2.txt", likefile, 1000, 60}, // 1
 }
 
 func TestSync(t *testing.T) {
 	server := fmt.Sprintf("localhost:%v", port)
 	writeFile(t, "testfile.txt", testfile)
-	go slicesync.HashNDumpServer(port,".")
+	go slicesync.HashNDumpServer(port, ".")
 	for i, st := range synctests {
 		writeFile(t, st.filename, st.content)
 		diffs, err := slicesync.Slicesync(server, filename, st.filename, "", st.slice)
