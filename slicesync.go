@@ -112,8 +112,8 @@ func CalcDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
 // slice is the size of each of the slices to sync
 //
 // Algorithm:
-// 1. Run CalcDiffs
-// 2. Download diffs
+// 1. CalcDiffs
+// 2. DownloadDiffs
 // 3. Check local & remote hash
 // 4. If all is well the generated diff is returned
 //
@@ -124,13 +124,21 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (diffs *Di
 	if alike == "" {
 		alike = destfile
 	}
+	// 0. Bypass process and Download directly if there is no alike file
+	if !exists(alike) {
+		downloaded, err := Download(destfile, server+"/dump/"+filename)
+		if err != nil {
+			return nil, fmt.Errorf("Direct Download error: %v", err)
+		}
+		return NewDiffs(server, filename, "", slice, downloaded), nil
+	}
 	// 1. CalcDiffs
 	diffs, err = CalcDiffs(server, filename, alike, slice)
 	if err != nil {
 		return nil, fmt.Errorf("Error calculating differences: %v", err)
 	}
-	// 2. Download
-	_, localHash, err := Download(destfile, diffs)
+	// 2. DownloadDiffs
+	_, localHash, err := DownloadDiffs(destfile, diffs)
 	if err != nil {
 		return nil, fmt.Errorf("Download error: %v", err)
 	}
@@ -142,9 +150,8 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (diffs *Di
 	return diffs, err
 }
 
-// Download a filename by differences into destfile
-func Download(destfile string, diffs *Diffs) (downloaded int64, hash string, err error) {
-	// 1. Prepare mixerfn
+// DownloadDiffs downloads a filename by differences into destfile
+func DownloadDiffs(destfile string, diffs *Diffs) (downloaded int64, hash string, err error) {
 	file, err := os.OpenFile(destfile, os.O_CREATE|os.O_WRONLY, 0750) // For write access
 	if err != nil {
 		return
@@ -177,6 +184,21 @@ func Download(destfile string, diffs *Diffs) (downloaded int64, hash string, err
 		done += n
 	}
 	return downloaded, fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+// Download simply downloads a URL to destfile (no hash calculus is done or returned)
+func Download(destfile, url string) (downloaded int64, err error) {
+	r, _, err := open(url)
+	if err != nil {
+		return
+	}
+	defer r.Close()
+	w, err := os.OpenFile(destfile, os.O_CREATE|os.O_WRONLY, 0750) // For write access
+	if err != nil {
+		return
+	}
+	defer w.Close()
+	return io.Copy(w, r)
 }
 
 // diffLoop builds the diffs from the hash streams
@@ -287,4 +309,12 @@ func min(a, b int64) int64 {
 		return b
 	}
 	return a
+}
+
+// Does the file exist?
+func exists(filename string) bool {
+	if _, err := os.Stat(filename); err == nil {
+		return true
+	}
+	return false
 }
