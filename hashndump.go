@@ -171,7 +171,7 @@ func bulkHashDump(w io.Writer, file io.ReadCloser, filename string, slice, size 
 	bufW := bufio.NewWriterSize(w, bufferSize)
 	defer bufW.Flush()
 	fmt.Fprintf(bufW, "Version: %v\n", Version)
-	fmt.Fprintf(bufW, "Filename: %v\n", filename)
+	fmt.Fprintf(bufW, "Filename: %v\n", filepath.Base(filename))
 	fmt.Fprintf(bufW, "Slice: %v\n", slice)
 	fmt.Fprintf(bufW, "Length: %v\n", size)
 	if size > 0 {
