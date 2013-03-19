@@ -89,7 +89,8 @@ func HashDir(dir string, slice int64, recursive bool) error {
 }
 
 // hashFile produces a filename+".slicesync" file with the full bulkhash dump of filename
-func HashFile(filename string, slice int64) error {
+func HashFile(filename string, slice int64) (err error) {
+	done := false
 	if slice <= 0 { // protection against infinite loop by bad arguments
 		slice = MiB
 	}
@@ -97,6 +98,11 @@ func HashFile(filename string, slice int64) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if done {
+			err = os.Rename(filename+TmpSliceSyncExt, filename+SliceSyncExt)
+		}
+	}()
 	defer fhdump.Close()
 	file, err := os.Open(filename) // For read access
 	if err != nil {
@@ -108,7 +114,8 @@ func HashFile(filename string, slice int64) error {
 		return err
 	}
 	bulkHashDump(fhdump, file, filename, slice, fi.Size())
-	return os.Rename(filename+TmpSliceSyncExt, filename+SliceSyncExt)
+	done = true
+	return
 }
 
 // BulkHash calculates the file hash and all hashes of size slice and writes them to w
