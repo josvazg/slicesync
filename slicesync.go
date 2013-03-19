@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -234,14 +235,14 @@ func diffLoop(diffs *Diffs, local, remote *bufio.Reader, lsize, rsize int64) err
 // readHeader reads the full .slicesync file/stream header checking that all is correct and returning the file size
 func readHeader(r *bufio.Reader, filename string, slice int64) (size int64, err error) {
 	attrs := []string{"Version", "Filename", "Slice"}
-	expectedValues := []interface{}{Version, filename, fmt.Sprintf("%v", slice)}
+	expectedValues := []interface{}{Version, filepath.Base(filename), fmt.Sprintf("%v", slice)}
 	for n, attr := range attrs {
 		val, err := readAttribute(r, attr)
 		if err != nil {
 			return 0, err
 		}
 		if val != expectedValues[n] {
-			return 0, fmt.Errorf("%s mismacth: Expecting %s but got %s!", attr, expectedValues[n], val)
+			return 0, fmt.Errorf("%s mismatch: Expecting %s but got %s!", attr, expectedValues[n], val)
 		}
 	}
 	return readInt64Attribute(r, "Length")
@@ -271,7 +272,7 @@ func readAttribute(r *bufio.Reader, name string) (string, error) {
 	return strings.Trim(data[len(name)+1:], " \n"), nil
 }
 
-// readInt64Attribute reads an int64 attritubte from the .slicesync text header
+// readInt64Attribute reads an int64 attribute from the .slicesync text header
 func readInt64Attribute(r *bufio.Reader, name string) (int64, error) {
 	line, err := readAttribute(r, name)
 	if err != nil {
