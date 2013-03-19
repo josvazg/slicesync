@@ -18,12 +18,16 @@ func pct(bytes, total int64) float64 {
 	return float64(bytes*100) / float64(total)
 }
 
+func usage() {
+	fmt.Printf("Usage: %v [-slice size] [filename]\n", os.Args[0])
+	fmt.Printf("   or: %v [-slice size] [-r]\n", os.Args[0])
+}
+
 func main() {
 	var slice int64
 	var recursive bool
 	if len(os.Args) < 1 {
-		fmt.Printf("Usage: %v [-slice size] [filename]\n", os.Args[0])
-		fmt.Printf("   or: %v [-slice size] [-r]\n", os.Args[0])
+		usage()
 		return
 	}
 	flag.Int64Var(&slice, "slice", slicesync.MiB, "(Optional) Slice size")
@@ -45,7 +49,11 @@ func main() {
 		return
 	}
 	var err error
-	filename := flag.Args()[1]
+	if len(flag.Args()) < 1 {
+		usage()
+		return
+	}
+	filename := flag.Args()[0]
 	hnd := slicesync.LocalHashNDump{"."}
 	if len(os.Args) > 2 {
 		fmt.Printf("Hashing %v...\n", filename)
