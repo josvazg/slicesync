@@ -132,7 +132,7 @@ func (hnd *LocalHashNDump) BulkHash(filename string, slice int64) (rc io.ReadClo
 	f, err := os.Lstat(filename)
 	autopanic(err)
 	fullfilename := calcpath(hnd.Dir, filename)
-	if needsHashing(f, slice, hnd.Dir) { // generate the bulkhash dump now
+	if !hasBulkHashFile(f, slice, hnd.Dir) { // generate the bulkhash dump now
 		file, err := os.Open(fullfilename) // For read access
 		autopanic(err)
 		if slice <= 0 { // protection against infinite loop by bad arguments
@@ -141,12 +141,13 @@ func (hnd *LocalHashNDump) BulkHash(filename string, slice int64) (rc io.ReadClo
 		fi, err := file.Stat()
 		autopanic(err)
 		r, w := io.Pipe()
-		fhdump, err := os.OpenFile(fullfilename, os.O_CREATE|os.O_WRONLY, 0750)
-		autopanic(err)
+		/*fhdump, err := os.OpenFile(fullfilename, os.O_CREATE|os.O_WRONLY, 0750)
+		autopanic(err)*/
 		go func() {
 			defer w.Close()
-			defer fhdump.Close()
-			bulkHashDump(io.MultiWriter(w, fhdump), file, filename, slice, fi.Size())
+			//defer fhdump.Close()
+			//bulkHashDump(io.MultiWriter(w, fhdump), file, filename, slice, fi.Size())
+			bulkHashDump(w, file, filename, slice, fi.Size())
 		}()
 		return r, nil
 	}
@@ -200,12 +201,15 @@ func bulkHashDump(w io.Writer, file io.ReadCloser, filename string, slice, size 
 // needHashing returns true ONLY if there isn't a f.Name()+".slicesync" older than f.Name() itself
 func needsHashing(f os.FileInfo, slice int64, dir string) bool {
 	if !f.IsDir() && f.Size() > slice && !strings.HasSuffix(f.Name(), SliceSyncExt) {
-		hdump, err := os.Lstat(filepath.Join(dir, f.Name()+SliceSyncExt))
-		if (err != nil) || (hdump != nil && hdump.ModTime().Before(f.ModTime())) {
-			return true
-		}
+		return !hasBulkHashFile(f, slice, dir)
 	}
 	return false
+}
+
+// hasBulkHashFile returns true if there is a valid bulkhash .slicesync file for filename
+func hasBulkHashFile(f os.FileInfo, slice int64, dir string) bool {
+	hdump, err := os.Lstat(filepath.Join(dir, f.Name()+SliceSyncExt))
+	return err == nil && hdump != nil && hdump.ModTime().After(f.ModTime())
 }
 
 // Hash returns the Hash (sha-1) for a file slice or the full file

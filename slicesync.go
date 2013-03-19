@@ -64,39 +64,39 @@ func CalcDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
 	localHnd := &LocalHashNDump{"."}
 	lc, err := localHnd.BulkHash(alike, slice)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Error opening local diff source: %v", err)
 	}
 	defer lc.Close()
 	local := bufio.NewReader(lc)
 	remoteHnd := &RemoteHashNDump{server}
 	rm, err := remoteHnd.BulkHash(filename, slice)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Error opening remote diff source: %v", err)
 	}
 	defer rm.Close()
 	remote := bufio.NewReader(rm)
 	// local & remote headers
 	lsize, err := readHeader(local, alike, slice)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Local diff source header error: %v", err)
 	}
 	rsize, err := readHeader(remote, filename, slice)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Remote diff source header error: %v", err)
 	}
 	// diff building loop
 	diffs := NewDiffs(server, filename, alike, slice, rsize)
 	if err = diffLoop(diffs, local, remote, lsize, rsize); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Diff loop error: %v", err)
 	}
 	// total hashes
 	diffs.AlikeHash, err = readAttribute(local, hasherName())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Local file hash error: %v", err)
 	}
 	diffs.Hash, err = readAttribute(remote, hasherName())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Remote file hash error: %v", err)
 	}
 	return diffs, nil
 }
@@ -126,12 +126,12 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (diffs *Di
 	// 1. CalcDiffs
 	diffs, err = CalcDiffs(server, filename, alike, slice)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Error calculating differences: %v", err)
 	}
 	// 2. Download
 	_, localHash, err := Download(destfile, diffs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Download error: %v", err)
 	}
 	// 3. Check hashes
 	if localHash != diffs.Hash {
