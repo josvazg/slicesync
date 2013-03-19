@@ -40,6 +40,7 @@ func (sd *Diffs) String() string {
 	return string(bytes)
 }
 
+// Print shows the Diffs ina Pretty-Printed json format
 func (sd *Diffs) Print() string {
 	dst := bytes.NewBufferString("")
 	if err := json.Indent(dst, ([]byte)(sd.String()), "", "  "); err != nil {

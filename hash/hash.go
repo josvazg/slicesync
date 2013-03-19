@@ -1,10 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"github.com/josvazg/slicesync"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -17,13 +19,33 @@ func pct(bytes, total int64) float64 {
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Printf("Usage: %v {filename} [slice]\n", os.Args[0])
+	var slice int64
+	var recursive bool
+	if len(os.Args) < 1 {
+		fmt.Printf("Usage: %v [-slice size] [filename]\n", os.Args[0])
+		fmt.Printf("   or: %v [-slice size] [-r]\n", os.Args[0])
+		return
+	}
+	flag.Int64Var(&slice, "slice", slicesync.MiB, "(Optional) Slice size")
+	flag.BoolVar(&recursive, "r", false, "Recursive Bulkhash directory preparation")
+	flag.Parse()
+	if recursive || len(os.Args) == 1 {
+		dir, err := filepath.Abs(".")
+		if err != nil {
+			fmt.Fprint(os.Stderr, err.Error()+"\n")
+		}
+		mode := ""
+		if recursive {
+			mode = " recursively"
+		}
+		fmt.Printf("Hashing current directory '%s'%s...\n", dir, mode)
+		if err := slicesync.HashDir(dir, slice, recursive); err != nil {
+			fmt.Fprint(os.Stderr, err.Error()+"\n")
+		}
 		return
 	}
 	var err error
-	filename := os.Args[1]
-	slice := int64(slicesync.AUTOSIZE)
+	filename := flag.Args()[1]
 	hnd := slicesync.LocalHashNDump{"."}
 	if len(os.Args) > 2 {
 		fmt.Printf("Hashing %v...\n", filename)

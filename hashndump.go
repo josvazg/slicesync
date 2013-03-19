@@ -8,12 +8,16 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 const (
-	AUTOSIZE = 0 // Use AUTOSIZE when you don't know or care for the total file or slice size 
-	MiB      = 1048576
-	Version  = "0.0.1"
+	AUTOSIZE        = 0 // Use AUTOSIZE when you don't know or care for the total file or slice size 
+	MiB             = 1048576
+	Version         = "0.0.1"
+	SliceSyncExt    = ".slicesync"
+	TmpSliceSyncExt = ".tmp" + SliceSyncExt
+	bufferSize      = 1024
 )
 
 // LimitedReadCloser reads just N bytes from a reader and allows to close it as well
@@ -46,6 +50,67 @@ type LocalHashNDump struct {
 	Dir string
 }
 
+// HashDir prepares the hashes of all files in the given directory, recursively if asked to
+// Blocking single threaded function (no go-routines), for quite a heavy background process
+// It returns any error it encounters in the process
+func HashDir(dir string, slice int64, recursive bool) error {
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("%s is not a Directory!", dir)
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	fis, err := d.Readdir(0)
+	if err != nil {
+		return err
+	}
+	for _, f := range fis {
+		if needsHashing(f, slice, dir) {
+			if err := HashFile(filepath.Join(dir, f.Name()), slice); err != nil {
+				return err
+			}
+		}
+	}
+	if recursive {
+		for _, f := range fis {
+			if f.IsDir() {
+				if err := HashDir(filepath.Join(dir, f.Name()), slice, recursive); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// hashFile produces a filename+".slicesync" file with the full bulkhash dump of filename
+func HashFile(filename string, slice int64) error {
+	if slice <= 0 { // protection against infinite loop by bad arguments
+		slice = MiB
+	}
+	fhdump, err := os.OpenFile(filename+TmpSliceSyncExt, os.O_CREATE|os.O_WRONLY, 0750)
+	if err != nil {
+		return err
+	}
+	defer fhdump.Close()
+	file, err := os.Open(filename) // For read access
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	fi, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	bulkHashDump(fhdump, file, filename, slice, fi.Size())
+	return os.Rename(filename+TmpSliceSyncExt, filename+SliceSyncExt)
+}
+
 // BulkHash calculates the file hash and all hashes of size slice and writes them to w
 //
 // Output is as follows:
@@ -56,27 +121,53 @@ type LocalHashNDump struct {
 // Post initialization errors are dumped in-line starting as a "Error: "... line
 // Nothing more is sent after an error occurs and is dumped to w
 func (hnd *LocalHashNDump) BulkHash(filename string, slice int64) (rc io.ReadCloser, err error) {
-	file, err := os.Open(calcpath(hnd.Dir, filename)) // For read access
-	if err != nil {
-		return nil, err
+	defer func() {
+		if r := recover(); r != nil {
+			if _, ok := r.(runtime.Error); ok {
+				panic(r)
+			}
+			err = r.(error)
+		}
+	}()
+	f, err := os.Lstat(filename)
+	autopanic(err)
+	fullfilename := calcpath(hnd.Dir, filename)
+	if needsHashing(f, slice, hnd.Dir) { // generate the bulkhash dump now
+		file, err := os.Open(fullfilename) // For read access
+		autopanic(err)
+		if slice <= 0 { // protection against infinite loop by bad arguments
+			slice = MiB
+		}
+		fi, err := file.Stat()
+		autopanic(err)
+		r, w := io.Pipe()
+		fhdump, err := os.OpenFile(fullfilename, os.O_CREATE|os.O_WRONLY, 0750)
+		autopanic(err)
+		go func() {
+			defer w.Close()
+			defer fhdump.Close()
+			bulkHashDump(io.MultiWriter(w, fhdump), file, filename, slice, fi.Size())
+		}()
+		return r, nil
 	}
-	if slice <= 0 { // protection against infinite loop by bad arguments
-		slice = MiB
-	}
-	fi, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
+	// re-read the pre-generated bulkhash dump
+	file, err := os.Open(fullfilename + SliceSyncExt) // For read access
+	autopanic(err)
 	r, w := io.Pipe()
-	go bulkHashDump(w, file, filename, slice, fi.Size())
+	go func() {
+		defer file.Close()
+		defer w.Close()
+		bufW := bufio.NewWriterSize(w, bufferSize)
+		defer bufW.Flush()
+		io.Copy(bufW, file)
+	}()
 	return r, nil
 }
 
-// bulkHashDump produces BulkHash output into the piped writer
-func bulkHashDump(w io.WriteCloser, file io.ReadCloser, filename string, slice, size int64) {
+// bulkHashDump produces BulkHash output into the given writer for the given slice and file size
+func bulkHashDump(w io.Writer, file io.ReadCloser, filename string, slice, size int64) {
 	defer file.Close()
-	defer w.Close()
-	bufW := bufio.NewWriterSize(w, 1024)
+	bufW := bufio.NewWriterSize(w, bufferSize)
 	defer bufW.Flush()
 	fmt.Fprintf(bufW, "Version: %v\n", Version)
 	fmt.Fprintf(bufW, "Filename: %v\n", filename)
@@ -104,6 +195,17 @@ func bulkHashDump(w io.WriteCloser, file io.ReadCloser, filename string, slice, 
 		}
 		fmt.Fprintf(bufW, "%v: %x\n", hasherName(), h.Sum(nil))
 	}
+}
+
+// needHashing returns true ONLY if there isn't a f.Name()+".slicesync" older than f.Name() itself
+func needsHashing(f os.FileInfo, slice int64, dir string) bool {
+	if !f.IsDir() && f.Size() > slice && !strings.HasSuffix(f.Name(), SliceSyncExt) {
+		hdump, err := os.Lstat(filepath.Join(dir, f.Name()+SliceSyncExt))
+		if (err != nil) || (hdump != nil && hdump.ModTime().Before(f.ModTime())) {
+			return true
+		}
+	}
+	return false
 }
 
 // Hash returns the Hash (sha-1) for a file slice or the full file
