@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 )
 
 const (
@@ -16,6 +15,7 @@ const (
 	MiB             = 1048576
 	Version         = "0.0.1"
 	SliceSyncExt    = ".slicesync"
+	SlicesyncDir    = SliceSyncExt
 	TmpSliceSyncExt = ".tmp" + SliceSyncExt
 	bufferSize      = 1024
 )
@@ -78,7 +78,7 @@ func HashDir(dir string, slice int64, recursive bool) error {
 	}
 	if recursive {
 		for _, f := range fis {
-			if f.IsDir() {
+			if f.IsDir() && f.Name() != SlicesyncDir {
 				if err := HashDir(filepath.Join(dir, f.Name()), slice, recursive); err != nil {
 					return err
 				}
@@ -94,13 +94,13 @@ func HashFile(filename string, slice int64) (err error) {
 	if slice <= 0 { // protection against infinite loop by bad arguments
 		slice = MiB
 	}
-	fhdump, err := os.OpenFile(filename+TmpSliceSyncExt, os.O_CREATE|os.O_WRONLY, 0750)
+	fhdump, err := os.OpenFile(tmpSlicesyncFile(filename), os.O_CREATE|os.O_WRONLY, 0750)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		if done {
-			err = os.Rename(filename+TmpSliceSyncExt, filename+SliceSyncExt)
+			err = os.Rename(tmpSlicesyncFile(filename), slicesyncFile(filename))
 		}
 	}()
 	defer fhdump.Close()
@@ -159,7 +159,7 @@ func (hnd *LocalHashNDump) BulkHash(filename string, slice int64) (rc io.ReadClo
 		return r, nil
 	}
 	// re-read the pre-generated bulkhash dump
-	file, err := os.Open(fullfilename + SliceSyncExt) // For read access
+	file, err := os.Open(slicesyncFile(filename)) // For read access
 	autopanic(err)
 	r, w := io.Pipe()
 	go func() {
@@ -208,7 +208,7 @@ func bulkHashDump(w io.Writer, file io.ReadCloser, filename string, slice, size 
 
 // needHashing returns true ONLY if there isn't a f.Name()+".slicesync" older than f.Name() itself
 func needsHashing(f os.FileInfo, slice int64, dir string) bool {
-	if !f.IsDir() && f.Size() > slice && !strings.HasSuffix(f.Name(), SliceSyncExt) {
+	if !f.IsDir() && f.Size() > slice {
 		return !hasBulkHashFile(f, slice, dir)
 	}
 	return false
@@ -216,7 +216,7 @@ func needsHashing(f os.FileInfo, slice int64, dir string) bool {
 
 // hasBulkHashFile returns true if there is a valid bulkhash .slicesync file for filename
 func hasBulkHashFile(f os.FileInfo, slice int64, dir string) bool {
-	hdump, err := os.Lstat(filepath.Join(dir, f.Name()+SliceSyncExt))
+	hdump, err := os.Lstat(slicesyncFile(filepath.Join(dir, f.Name())))
 	return err == nil && hdump != nil && hdump.ModTime().After(f.ModTime())
 }
 
@@ -306,6 +306,24 @@ func sliceFile(file *os.File, max, offset, slice int64) int64 {
 		toread = max - offset
 	}
 	return toread
+}
+
+// tmpSlicesyncFile returns the corresponding temporary .tmp.slicesync file for filename
+func tmpSlicesyncFile(filename string) string {
+	return filepath.Join(slicesyncDir(filename), filepath.Base(filename)+TmpSliceSyncExt)
+}
+
+// slicesyncFile returns the corresponding .slicesync file for filename
+func slicesyncFile(filename string) string {
+	return filepath.Join(slicesyncDir(filename), filepath.Base(filename)+SliceSyncExt)
+}
+
+// slicesyncDir returns the .slicesync base directory of a given file
+func slicesyncDir(filename string) string {
+	dir := filepath.Dir(filename)
+	dir = filepath.Join(dir, SlicesyncDir)
+	os.MkdirAll(dir, 0750)
+	return dir
 }
 
 // autopanic panic on any non-nil error
