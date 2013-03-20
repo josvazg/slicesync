@@ -177,13 +177,14 @@ func bulkHashDump(w io.Writer, file io.ReadCloser, filename string, slice, size 
 	defer file.Close()
 	bufW := bufio.NewWriterSize(w, bufferSize)
 	defer bufW.Flush()
+	sliceHash := newSliceHasher()
 	fmt.Fprintf(bufW, "Version: %v\n", Version)
 	fmt.Fprintf(bufW, "Filename: %v\n", filepath.Base(filename))
 	fmt.Fprintf(bufW, "Slice: %v\n", slice)
+	fmt.Fprintf(bufW, "Slice Hashing: %v\n", sliceHash.Name())
 	fmt.Fprintf(bufW, "Length: %v\n", size)
 	if size > 0 {
 		h := newHasher()
-		sliceHash := newSliceHasher()
 		hashSink := io.MultiWriter(h, sliceHash)
 		readed := int64(0)
 		var err error
@@ -201,7 +202,7 @@ func bulkHashDump(w io.Writer, file io.ReadCloser, filename string, slice, size 
 			sliceHash.Reset()
 			bufW.Flush()
 		}
-		fmt.Fprintf(bufW, "%v: %x\n", hasherName(), h.Sum(nil))
+		fmt.Fprintf(bufW, "%v: %x\n", h.Name(), h.Sum(nil))
 	}
 }
 
@@ -231,7 +232,7 @@ func (hnd *LocalHashNDump) Hash(filename string, offset, slice int64) (
 			err = r.(error)
 		}
 	}()
-	hi = doHash(calcpath(hnd.Dir, filename), offset, slice)
+	hi = doHash(calcpath(hnd.Dir, filename), offset, slice, autoHasher(offset, slice))
 	return
 }
 
@@ -264,7 +265,7 @@ func calcpath(dir, filename string) string {
 }
 
 // doHash is the internal function that calculates the local hash of the given slice of filename
-func doHash(filename string, offset, slice int64) *HashInfo {
+func doHash(filename string, offset, slice int64, h namedHash) *HashInfo {
 	file, err := os.Open(filename) // For read access
 	autopanic(err)
 	defer file.Close()
@@ -273,10 +274,10 @@ func doHash(filename string, offset, slice int64) *HashInfo {
 	toread := sliceFile(file, fi.Size(), offset, slice)
 	hash := ""
 	if toread > 0 {
-		h := newSliceHasher()
+		h.Reset()
 		_, err = io.CopyN(h, file, toread)
 		autopanic(err)
-		hash = fmt.Sprintf("%v-%x", sliceHasherName(), h.Sum(nil))
+		hash = fmt.Sprintf("%v-%x", h.Name(), h.Sum(nil))
 	}
 	return &HashInfo{fi.Size(), offset, toread, hash}
 }

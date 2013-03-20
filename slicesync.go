@@ -91,11 +91,12 @@ func CalcDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
 		return nil, fmt.Errorf("Diff loop error: %v", err)
 	}
 	// total hashes
-	diffs.AlikeHash, err = readAttribute(local, hasherName())
+	hname := newHasher().Name()
+	diffs.AlikeHash, err = readAttribute(local, hname)
 	if err != nil {
 		return nil, fmt.Errorf("Local file hash error: %v", err)
 	}
-	diffs.Hash, err = readAttribute(remote, hasherName())
+	diffs.Hash, err = readAttribute(remote, hname)
 	if err != nil {
 		return nil, fmt.Errorf("Remote file hash error: %v", err)
 	}
@@ -258,8 +259,8 @@ func diffLoop(diffs *Diffs, local, remote *bufio.Reader, lsize, rsize int64) err
 
 // readHeader reads the full .slicesync file/stream header checking that all is correct and returning the file size
 func readHeader(r *bufio.Reader, filename string, slice int64) (size int64, err error) {
-	attrs := []string{"Version", "Filename", "Slice"}
-	expectedValues := []interface{}{Version, filepath.Base(filename), fmt.Sprintf("%v", slice)}
+	attrs := []string{"Version", "Filename", "Slice", "Slice Hashing"}
+	expectedValues := []interface{}{Version, filepath.Base(filename), fmt.Sprintf("%v", slice), newHasher().Name()}
 	for n, attr := range attrs {
 		val, err := readAttribute(r, attr)
 		if err != nil {
