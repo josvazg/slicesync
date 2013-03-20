@@ -1,16 +1,13 @@
-Spec
-====
+# Spec
 
-SliceSync
----------
+### SliceSync
 
 SliceSync goal is to allow efficient big file versions updates from an standard HTTP server or the slicesync's syncserver itself.
 
 To make it as fast and efficient as possible while not impossing too much load on the server side, slicesync prepares a bulk hash dump (.slicesync) file for each file to be sent from the server. That file contains some information of the file to be downloaded, most importantly, the hash of each of the slices of that file and the full file hash. That info only needs to be re-calculated when the original file changes.
 
 
-Client
-------
+### Client
 
 Slicesync client tool is given:
 
@@ -28,8 +25,7 @@ The client tool then:
 5. At the end the generated file hash is compared with the remote file hash on .slicesync
 
 
-Server
-------
+### Server
 
 On the server side there are various options:
 
@@ -43,8 +39,7 @@ To keep the filesystem as clean as possible, all .slicesync files are placed wit
 Apart from that the server just needs to honour HTTP Range requests properly so that the client only gets the new parts not know before of the files to be downloaded. The server provides access to both the .slicesync files and the actual desired files.
 
 
-Format of .slicesync files
---------------------------
+#### Format of .slicesync files
 
 Following zsync inspiration at http://zsync.moria.org.uk/paper/ch04s02.html, .slicesync files have the following header:
 
