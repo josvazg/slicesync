@@ -18,7 +18,7 @@ Slicesync client tool is given:
 - A filename to download
 - An optional destination filename
 - An optional alike local file
-- An optional slice size (it defaults to the slice size in the precomputed the .slicesync files
+- An optional slice size (it defaults to the slice size in the precomputed the .slicesync files)
 
 The client tool then:
 
@@ -39,13 +39,13 @@ On the server side there are various options:
 
 In any case the files are served per directory or directory tree (recursively). Either syncserver or shash -service will be populating .slicesync files for any new file that is copied to the managed directory or directory tree. Also, files deleted make the corresponding .slicesync file disappear.
 
-To keep the filesystem as clean as possible, all .slicesync files are placed within a .slicesync directory, one per managed directory. Similar to what Sunversion does (or used to do) with the .svn directories.
+To keep the filesystem as clean as possible, all .slicesync files are placed within a .slicesync directory, one per managed directory. Similar to what Subversion does (or used to do) with the .svn directories.
 
-Apart from that the server just need to honour HTTP range requests properly so that the client only gets the new parts not know before of the files to be downloaded.
+Apart from that the server just need to honour HTTP Range requests properly so that the client only gets the new parts not know before of the files to be downloaded.
 
 
-.slicesync files
-----------------
+Format of .slicesync files
+--------------------------
 
 Following zsync inspiration at http://zsync.moria.org.uk/paper/ch04s02.html, .slicesync files have the following header:
 
