@@ -1,6 +1,30 @@
 Spec
 ====
 
+SliceSync
+---------
+
+SliceSync goal is to allow efficient big file versions updates from an standard HTTP server or the slicesync's syncserver itself.
+
+To make it as fast and efficient as possible while not impossing too much load on the server side, slicesync prepares a bulk hash dump (.slicesync) file for each file to be sent from the server. That file contains some information of the file to be downloaded, most importantly, the hash of each of the slices of that file and the full file hash. That info only needs to be re-calculated when the original file changes.
+
+Slicesync client tool is given:
+- A remote server URL
+- A filename to download
+- An optional destination filename
+- An optional alike local file
+- An optional slice size (it defaults to the slice size in the precomputed the .slicesync files
+
+The client tool will then:
+1. Download the remote .slicesync
+2. Load or generate on the fly the local alike .slicesync to compare with
+3. Calculate the differences
+4. Rebuild the remote file by mixing local available parts with remote parts
+5. At the end the generated file hash is compared with the remote file hash on .slicesync
+
+
+
+
 .slicesync files
 ----------------
 
