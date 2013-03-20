@@ -126,11 +126,13 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (diffs *Di
 	}
 	// 0. Bypass process and Download directly if there is no alike file
 	if !exists(alike) {
-		downloaded, err := Download(destfile, server+"/dump/"+filename)
+		downloaded, err := Download(destfile, "http://"+server+"/dump/"+filename)
 		if err != nil {
 			return nil, fmt.Errorf("Direct Download error: %v", err)
 		}
-		return NewDiffs(server, filename, "", slice, downloaded), nil
+		diffs := NewDiffs(server, filename, "", slice, downloaded)
+		diffs.Differences = downloaded
+		return diffs, nil
 	}
 	// 1. CalcDiffs
 	diffs, err = CalcDiffs(server, filename, alike, slice)
