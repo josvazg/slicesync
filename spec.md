@@ -14,15 +14,14 @@ Client
 
 Slicesync client tool is given:
 
-- A remote server URL
-- A filename to download
+- A .slicesync file URL containg the information to be downloaded
 - An optional destination filename
 - An optional alike local file
-- An optional slice size (it defaults to the slice size in the precomputed the .slicesync files)
+- An optional slice size (it defaults to the slice size in the downloaded .slicesync file)
 
 The client tool then:
 
-1. Downloads the remote .slicesync
+1. Downloads the remote .slicesync usage the URL
 2. Load or generate on the fly the local alike .slicesync to compare with
 3. Calculate the differences
 4. Rebuild the remote file by mixing local available parts with remote parts
@@ -39,9 +38,9 @@ On the server side there are various options:
 
 In any case the files are served per directory or directory tree (recursively). Either syncserver or shash -service will be populating .slicesync files for any new file that is copied to the managed directory or directory tree. Also, files deleted make the corresponding .slicesync file disappear.
 
-To keep the filesystem as clean as possible, all .slicesync files are placed within a .slicesync directory, one per managed directory. Similar to what Subversion does (or used to do) with the .svn directories.
+To keep the filesystem as clean as possible, all .slicesync files are placed within a single .slicesync directory, one per managed directory tree. Similar to what git or mercurial do with their .git or .hg directories.
 
-Apart from that the server just need to honour HTTP Range requests properly so that the client only gets the new parts not know before of the files to be downloaded.
+Apart from that the server just needs to honour HTTP Range requests properly so that the client only gets the new parts not know before of the files to be downloaded. The server provides access to both the .slicesync files and the actual desired files.
 
 
 Format of .slicesync files
