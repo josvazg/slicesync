@@ -260,7 +260,12 @@ func diffLoop(diffs *Diffs, local, remote *bufio.Reader, lsize, rsize int64) err
 // readHeader reads the full .slicesync file/stream header checking that all is correct and returning the file size
 func readHeader(r *bufio.Reader, filename string, slice int64) (size int64, err error) {
 	attrs := []string{"Version", "Filename", "Slice", "Slice Hashing"}
-	expectedValues := []interface{}{Version, filepath.Base(filename), fmt.Sprintf("%v", slice), newHasher().Name()}
+	expectedValues := []interface{}{
+		Version,
+		filepath.Base(filename),
+		fmt.Sprintf("%v", slice),
+		newSliceHasher().Name(),
+	}
 	for n, attr := range attrs {
 		val, err := readAttribute(r, attr)
 		if err != nil {

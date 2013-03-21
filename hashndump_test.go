@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"github.com/josvazg/slicesync"
 	"io"
-	"os"
+	"io/ioutil"
 	"testing"
 )
 
@@ -23,14 +23,18 @@ var tests = []struct {
 	start, len int64
 	expected   string
 	goodhash   string
-}{{"testfile.txt", 0, 0, testfile, "sha1-6e1eb4d4daf850c250bdc9a16669c7f66915f842"},
-	{"testfile.txt", 0, 10, "AAAAAAAAA\n", "sha1-bf6492720d4179ce7d10d82f80b6ec61d871177d"},
-	{"testfile.txt", 10, 10, "BBBBBBBBB\n", "sha1-4c2589d96f40deefe9b6faa049e96488361fad9d"},
+}{
+	{"testfile.txt", 0, 0, testfile, "sha1-6e1eb4d4daf850c250bdc9a16669c7f66915f842"},
+	{"testfile.txt", 0, 10, "AAAAAAAAA\n", "adler32+md5-0dca0254f252b28c22d0bb68caf870df063b6064"},
+	{"testfile.txt", 10, 10, "BBBBBBBBB\n", "adler32+md5-0e00025d961310d0926542e45d7190a22d68b48c"},
 }
 
 func TestSlices(t *testing.T) {
 	hnd := &slicesync.LocalHashNDump{Dir: "."}
-	writeFile(t, "testfile.txt", testfile)
+	err := ioutil.WriteFile("testfile.txt", ([]byte)(testfile), 0750)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for i, test := range tests {
 		dmp, _, err := hnd.Dump(test.filename, test.start, test.len)
 		if err != nil {
@@ -48,20 +52,8 @@ func TestSlices(t *testing.T) {
 			t.Fatal(err)
 		}
 		if fi.Hash != test.goodhash {
-			t.Fatalf("Test #%d failed: expected SHA1 hash %s but got %s\n",
+			t.Fatalf("Test #%d failed: expected hash %s but got %s\n",
 				i, test.goodhash, fi.Hash)
 		}
-	}
-}
-
-func writeFile(t *testing.T, filename, content string) {
-	file, err := os.Create(filename)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-	n, err := io.WriteString(file, content)
-	if err != nil || n != len(content) {
-		t.Fatal(err)
 	}
 }

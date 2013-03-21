@@ -3,6 +3,7 @@ package slicesync_test
 import (
 	"fmt"
 	"github.com/josvazg/slicesync"
+	"io/ioutil"
 	"testing"
 )
 
@@ -28,10 +29,16 @@ var synctests = []struct {
 
 func TestSync(t *testing.T) {
 	server := fmt.Sprintf("localhost:%v", port)
-	writeFile(t, "testfile.txt", testfile)
+	err := ioutil.WriteFile("testfile.txt", ([]byte)(testfile), 0750)
+	if err != nil {
+		t.Fatal(err)
+	}
 	go slicesync.HashNDumpServer(port, ".")
 	for i, st := range synctests {
-		writeFile(t, st.filename, st.content)
+		err := ioutil.WriteFile(st.filename, ([]byte)(st.content), 0750)
+		if err != nil {
+			t.Fatal(err)
+		}
 		diffs, err := slicesync.Slicesync(server, filename, st.filename, "", st.slice)
 		if err != nil {
 			t.Fatal(err)

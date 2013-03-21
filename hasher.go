@@ -4,7 +4,6 @@ import (
 	"crypto/md5"
 	"crypto/sha1"
 	"hash"
-	"hash/adler32"
 )
 
 // namedHash is a hash.Hash with a name
@@ -84,7 +83,7 @@ func newHasher() namedHash {
 // newSliceHasher returns a Hash implementation for each slice 
 // (SHA1 on naive implementation or rolling+hash in rsync's symulation)
 func newSliceHasher() namedHash {
-	return &complexHash{adler32.New(), md5.New(), "adler32+md5"}
+	return &complexHash{New(), md5.New(), "adler32+md5"}
 }
 
 // autoHasher returns a newHasher() if the offset is 0 and slice is AUTOSIZE and newSliceHasher() otherwise
