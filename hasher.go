@@ -6,6 +6,10 @@ import (
 	"hash"
 )
 
+const (
+	SLICEHASH_SIZE = 20
+)
+
 // namedHash is a hash.Hash with a name
 type namedHash interface {
 	hash.Hash
@@ -18,6 +22,19 @@ type simpleHash struct {
 	name string
 }
 
+// RollingHash can roll or scroll the hash window
+type RollingHash interface {
+	hash.Hash
+	Roll(window uint32, oldbyte, newbyte byte) []byte
+}
+
+// RollingHash32 is a rollingHash that produces 32bit hashes
+type RollingHash32 interface {
+	hash.Hash32
+	Roll(window uint32, oldbyte, newbyte byte) []byte
+	Roll32(window uint32, oldbyte, newbyte byte) uint32
+}
+
 // Name is the name of this namedHash
 func (sh *simpleHash) Name() string {
 	return sh.name
@@ -25,7 +42,7 @@ func (sh *simpleHash) Name() string {
 
 // Complex hash implements hash.Hash composed of a 32bit rolling hash and strong Hash
 type complexHash struct {
-	rolling hash.Hash32
+	rolling RollingHash32
 	strong  hash.Hash
 	name    string
 }
@@ -83,7 +100,7 @@ func newHasher() namedHash {
 // newSliceHasher returns a Hash implementation for each slice 
 // (SHA1 on naive implementation or rolling+hash in rsync's symulation)
 func newSliceHasher() namedHash {
-	return &complexHash{New(), md5.New(), "adler32+md5"}
+	return &complexHash{NewRollingAdler32(), md5.New(), "adler32+md5"}
 }
 
 // autoHasher returns a newHasher() if the offset is 0 and slice is AUTOSIZE and newSliceHasher() otherwise

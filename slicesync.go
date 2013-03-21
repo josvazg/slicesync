@@ -3,6 +3,7 @@ package slicesync
 import (
 	"bufio"
 	"bytes"
+	//"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,9 +28,21 @@ type Diffs struct {
 	Hash, AlikeHash          string
 }
 
+// diffBuilder function builds the diff following some algorithm
+type diffBuilder func(diffs *Diffs, local, remote *bufio.Reader, lsize int64) error
+
+// defaultDiffBuilder points to the currently activated diffBuilder function / algorithm
+var defaultDiffBuilder = naiveDiffBuilder
+
 // NewDiffs creates a Diffs data type
 func NewDiffs(server, filename, alike string, slice, size int64) *Diffs {
 	return &Diffs{server, filename, alike, slice, size, 0, make([]Diff, 0, 10), "", ""}
+}
+
+// hBlock contains a hash and its position on the file
+type hBlock struct {
+	pos  int64
+	hash [SLICEHASH_SIZE]byte
 }
 
 // String shows the diffs in a json representation
@@ -87,8 +100,11 @@ func CalcDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
 	}
 	// diff building loop
 	diffs := NewDiffs(server, filename, alike, slice, rsize)
-	if err = diffLoop(diffs, local, remote, lsize, rsize); err != nil {
-		return nil, fmt.Errorf("Diff loop error: %v", err)
+	if err = defaultDiffBuilder(diffs, local, remote, lsize); err != nil {
+		return nil, fmt.Errorf("DiffBuilder error: %v", err)
+	}
+	if diffs.Size > 0 && len(diffs.Diffs) == 0 {
+		return nil, fmt.Errorf("DiffBuilder error: No differences produced to allow file reconstruction!")
 	}
 	// total hashes
 	hname := newHasher().Name()
@@ -204,10 +220,10 @@ func Download(destfile, url string) (downloaded int64, err error) {
 	return io.Copy(w, r)
 }
 
-// diffLoop builds the diffs from the hash streams
-func diffLoop(diffs *Diffs, local, remote *bufio.Reader, lsize, rsize int64) error {
+// naiveDiffBuilder builds the diffs from the hash streams naively, just matching blocks on the same positions
+func naiveDiffBuilder(diffs *Diffs, local, remote *bufio.Reader, lsize int64) error {
 	indiff := false
-	end := min(lsize, rsize)
+	end := min(lsize, diffs.Size)
 	segment := diffs.Slice
 	start := int64(0)
 	pos := int64(0)
@@ -249,11 +265,38 @@ func diffLoop(diffs *Diffs, local, remote *bufio.Reader, lsize, rsize int64) err
 	} else {
 		diffs.Diffs[len(diffs.Diffs)-1].Size = pos - start
 	}
-	if lsize < rsize {
-		remaining := rsize - lsize
+	if lsize < diffs.Size {
+		remaining := diffs.Size - lsize
 		diffs.Diffs = append(diffs.Diffs, Diff{lsize, remaining, true})
 		diffs.Differences += remaining
 	}
+	return nil
+}
+
+// advancedDiffBuilder builds the diffs following a similar strategy as rsync, that is,
+// searching for block matches anywhere even on shifted or reshuffled content
+func advancedDiffBuilder(diffs *Diffs, local, remote *bufio.Reader, lsize int64) error {
+	// step 1 allocate the search index and data
+	/*searchIndex := make([]int, 0, 0xFFFF) // two bytes of the fast hash to index all
+	nhashes := diffs.Size/diffs.Slice + 1
+	hashdata := make([]hBlock, nhashes)*/
+	// step 2 read the remote bulk hash dump onto hashdata
+	/*for pos := int64(0); pos < diffs.Size; pos += diffs.Slice {
+		remoteHash, err := readString(remote)
+		if err != nil {
+			return err
+		}
+		hashbytes, err := base64.StdEncoding.DecodeString(remoteHash)
+		if err != nil {
+			return err
+		}
+		//hashdata := append(hashdata, hBlock{pos: pos}...)
+		//copy(hashdata[len(hashdata)-1].hash, hashbytes)
+	}*/
+	// step 3 short hashdata and build the searchIndex
+	// step 4 for a slice on each byte of the local file...
+	//        1) search if the weak / fast hash is on the remote target file
+	// 
 	return nil
 }
 
