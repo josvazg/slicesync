@@ -5,6 +5,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // Diff specifies a different or equal data segment of size Size
@@ -22,11 +27,43 @@ type Diffs struct {
 	Hash, AlikeHash          string
 }
 
-// calcDiffsFn returns the Diffs between remote filename and local alike or an error
-func calcDiffsFn(server, filename, alike string, slice int64) (*Diffs, error)
+// ring buffer allows to read by a moving window of bytes from a reader
+type ringBuffer struct {
+	buffer []byte
+	pos    int
+}
 
-// defaultDiffBuilder points to the currently activated calcDiffsFn function / algorithm
-var CalcDiffs = naiveDiffs
+// newRingBuffer allocates a size bytes ring buffer and returns it
+func newRingBuffer(size int) *ringBuffer {
+	return &ringBuffer{make([]byte, size), 0}
+}
+
+// size returns the size of the ringBuffer
+func (rb *ringBuffer) size() int {
+	return len(rb.buffer)
+}
+
+// slide move the ring buffer one position forward reading from r
+func (rb *ringBuffer) slide(r *bufio.Reader) (oldb, newb byte, err error) {
+	oldb = rb.buffer[rb.pos]
+	newb, err = r.ReadByte()
+	if err != nil {
+		return
+	}
+	rb.buffer[rb.pos] = newb
+	// move the pointer to the next position
+	rb.pos++
+	if rb.pos >= len(rb.buffer) {
+		rb.pos = 0
+	}
+	return
+}
+
+// calcDiffsFunc returns the Diffs between remote filename and local alike or an error
+func calcDiffsFunc(server, filename, alike string, slice int64) (*Diffs, error)
+
+// defaultDiffBuilder points to the currently activated calcDiffsFunc function / algorithm
+var CalcDiffs = NaiveDiffs
 
 // NewDiffs creates a Diffs data type
 func NewDiffs(server, filename, alike string, slice, size int64) *Diffs {
@@ -51,7 +88,7 @@ func (sd *Diffs) Print() string {
 	return dst.String()
 }
 
-// naiveDiffs returns the Diffs between remote filename and local alike or an error
+// NaiveDiffs returns the Diffs between remote filename and local alike or an error
 //
 // Algorithm:
 // 1. Open local and remote bulkHash streams
@@ -61,7 +98,7 @@ func (sd *Diffs) Print() string {
 //    and register and join the different areas in Diffs.Diffs with start Offset and Size
 // 4. Read local and remote total file hashes
 // 5. Return the Diffs
-func naiveDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
+func NaiveDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
 	// local & remote streams opening
 	localHnd := &LocalHashNDump{"."}
 	lc, err := localHnd.BulkHash(alike, slice)
@@ -160,8 +197,127 @@ func diffsBuilder(diffs *Diffs, local, remote *bufio.Reader, lsize int64) error 
 	return nil
 }
 
-// advancedDiffs builds the diffs following a similar strategy as rsync, that is,
+// AdvancedDiffs builds the diffs following a similar strategy as rsync, that is,
 // searching for block matches anywhere even on shifted or reshuffled content
-func advancedDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
-	return nil, fmt.Errorf("Not implemented")
+func AdvancedDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
+	fmt.Println("rhnd")
+	remoteHnd := &RemoteHashNDump{server}
+	rm, err := remoteHnd.BulkHash(filename, slice)
+	if err != nil {
+		return nil, fmt.Errorf("Error opening remote diff source: %v", err)
+	}
+	defer rm.Close()
+	remote := bufio.NewReader(rm)
+	fmt.Println("header")
+	rsize, err := readHeader(remote, filename, slice)
+	if err != nil {
+		return nil, fmt.Errorf("Remote diff source header error: %v", err)
+	}
+	fmt.Print("diff")
+	// diff creation
+	diffs := NewDiffs(server, filename, alike, slice, rsize)
+	// Open the local file
+	local, err := os.Open(diffs.Alike)
+	if err != nil {
+		return nil, fmt.Errorf("Error opening local alike: %v", err)
+	}
+	// loading the moving hash window
+	fmt.Println("window")
+	window := newRingBuffer(int(slice))
+	wh := NewRollingAdler32()
+	fmt.Println("buffered")
+	blocal := bufio.NewReaderSize(local, 32*1024)
+	n, err := blocal.Read(window.buffer)
+	if err != nil {
+		return nil, fmt.Errorf("Error loading the local hash window: %v", err)
+	}
+	wh.Write(window.buffer[:n])
+	pos := int64(n)
+	fmt.Println("local read...")
+	t := time.Now()
+	for ; pos < diffs.Size; pos++ {
+		oldb, newb, err := window.slide(blocal)
+		if err != nil {
+			return nil, fmt.Errorf("Error sliding the local hash window at %v: %v", pos, err)
+		}
+		wh.Roll32(uint32(window.size()), oldb, newb)
+		if pos%(MiB*250) == 0 {
+			if pos > 0 {
+				d := time.Since(t)
+				rel := time.Duration(diffs.Size / pos)
+				estimated := d * rel
+				//limit := (3 * time.Minute) / 2
+				/*if estimated > limit {
+					return nil, fmt.Errorf("too slow, estimated %v time is well over %v", estimated, limit)
+				}*/
+				fmt.Println(pos/MiB, estimated)
+			} else {
+				fmt.Println(pos / MiB)
+			}
+		}
+	}
+	fmt.Println(pos / MiB)
+	return diffs, nil
+}
+
+// readHeader reads the full .slicesync file/stream header checking that all is correct and returning the file size
+func readHeader(r *bufio.Reader, filename string, slice int64) (size int64, err error) {
+	attrs := []string{"Version", "Filename", "Slice", "Slice Hashing"}
+	expectedValues := []interface{}{
+		Version,
+		filepath.Base(filename),
+		fmt.Sprintf("%v", slice),
+		newSliceHasher().Name(),
+	}
+	for n, attr := range attrs {
+		val, err := readAttribute(r, attr)
+		if err != nil {
+			return 0, err
+		}
+		if val != expectedValues[n] {
+			return 0, fmt.Errorf("%s mismatch: Expecting %s but got %s!", attr, expectedValues[n], val)
+		}
+	}
+	return readInt64Attribute(r, "Length")
+}
+
+// readString returns the next string or an error
+func readString(r *bufio.Reader) (string, error) {
+	line, err := r.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	if strings.HasPrefix(line, "Error:") {
+		return "", fmt.Errorf(line)
+	}
+	return strings.Trim(line, " \n"), nil
+}
+
+// readAttribute returns the next attribute named name or an error
+func readAttribute(r *bufio.Reader, name string) (string, error) {
+	data, err := readString(r)
+	if err != nil {
+		return "", err
+	}
+	if !strings.HasPrefix(data, name+":") {
+		return "", fmt.Errorf(name+": expected, but got %s!", data)
+	}
+	return strings.Trim(data[len(name)+1:], " \n"), nil
+}
+
+// readInt64Attribute reads an int64 attribute from the .slicesync text header
+func readInt64Attribute(r *bufio.Reader, name string) (int64, error) {
+	line, err := readAttribute(r, name)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseInt(line, 10, 64)
+}
+
+// min returns the minimum int64 between a and b
+func min(a, b int64) int64 {
+	if b < a {
+		return b
+	}
+	return a
 }

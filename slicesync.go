@@ -1,13 +1,9 @@
 package slicesync
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 )
 
 // Slicesync copies remote filename from server to local destfile, 
@@ -109,68 +105,6 @@ func Download(destfile, url string) (downloaded int64, err error) {
 	}
 	defer w.Close()
 	return io.Copy(w, r)
-}
-
-// readHeader reads the full .slicesync file/stream header checking that all is correct and returning the file size
-func readHeader(r *bufio.Reader, filename string, slice int64) (size int64, err error) {
-	attrs := []string{"Version", "Filename", "Slice", "Slice Hashing"}
-	expectedValues := []interface{}{
-		Version,
-		filepath.Base(filename),
-		fmt.Sprintf("%v", slice),
-		newSliceHasher().Name(),
-	}
-	for n, attr := range attrs {
-		val, err := readAttribute(r, attr)
-		if err != nil {
-			return 0, err
-		}
-		if val != expectedValues[n] {
-			return 0, fmt.Errorf("%s mismatch: Expecting %s but got %s!", attr, expectedValues[n], val)
-		}
-	}
-	return readInt64Attribute(r, "Length")
-}
-
-// readString returns the next string or an error
-func readString(r *bufio.Reader) (string, error) {
-	line, err := r.ReadString('\n')
-	if err != nil {
-		return "", err
-	}
-	if strings.HasPrefix(line, "Error:") {
-		return "", fmt.Errorf(line)
-	}
-	return strings.Trim(line, " \n"), nil
-}
-
-// readAttribute returns the next attribute named name or an error
-func readAttribute(r *bufio.Reader, name string) (string, error) {
-	data, err := readString(r)
-	if err != nil {
-		return "", err
-	}
-	if !strings.HasPrefix(data, name+":") {
-		return "", fmt.Errorf(name+": expected, but got %s!", data)
-	}
-	return strings.Trim(data[len(name)+1:], " \n"), nil
-}
-
-// readInt64Attribute reads an int64 attribute from the .slicesync text header
-func readInt64Attribute(r *bufio.Reader, name string) (int64, error) {
-	line, err := readAttribute(r, name)
-	if err != nil {
-		return 0, err
-	}
-	return strconv.ParseInt(line, 10, 64)
-}
-
-// min returns the minimum int64 between a and b
-func min(a, b int64) int64 {
-	if b < a {
-		return b
-	}
-	return a
 }
 
 // Does the file exist?
