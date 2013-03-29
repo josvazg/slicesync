@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+const (
+	MAXBUF = 1024
+)
+
 // Diff specifies a different or equal data segment of size Size
 // Offset marks the starting position on the remote or local file for this segment
 type Diff struct {
@@ -25,38 +29,6 @@ type Diffs struct {
 	Slice, Size, Differences int64
 	Diffs                    []Diff
 	Hash, AlikeHash          string
-}
-
-// ring buffer allows to read by a moving window of bytes from a reader
-type ringBuffer struct {
-	buffer []byte
-	pos    int
-}
-
-// newRingBuffer allocates a size bytes ring buffer and returns it
-func newRingBuffer(size int) *ringBuffer {
-	return &ringBuffer{make([]byte, size), 0}
-}
-
-// size returns the size of the ringBuffer
-func (rb *ringBuffer) size() int {
-	return len(rb.buffer)
-}
-
-// slide move the ring buffer one position forward reading from r
-func (rb *ringBuffer) slide(r *bufio.Reader) (oldb, newb byte, err error) {
-	oldb = rb.buffer[rb.pos]
-	newb, err = r.ReadByte()
-	if err != nil {
-		return
-	}
-	rb.buffer[rb.pos] = newb
-	// move the pointer to the next position
-	rb.pos++
-	if rb.pos >= len(rb.buffer) {
-		rb.pos = 0
-	}
-	return
 }
 
 // calcDiffsFunc returns the Diffs between remote filename and local alike or an error
@@ -201,7 +173,7 @@ func diffsBuilder(diffs *Diffs, local, remote *bufio.Reader, lsize int64) error 
 // searching for block matches anywhere even on shifted or reshuffled content
 func AdvancedDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
 	fmt.Println("rhnd")
-	remoteHnd := &RemoteHashNDump{server}
+	remoteHnd := newHashNDumper(server)
 	rm, err := remoteHnd.BulkHash(filename, slice)
 	if err != nil {
 		return nil, fmt.Errorf("Error opening remote diff source: %v", err)
@@ -222,25 +194,24 @@ func AdvancedDiffs(server, filename, alike string, slice int64) (*Diffs, error) 
 		return nil, fmt.Errorf("Error opening local alike: %v", err)
 	}
 	// loading the moving hash window
-	fmt.Println("window")
-	window := newRingBuffer(int(slice))
-	wh := NewRollingAdler32()
 	fmt.Println("buffered")
-	blocal := bufio.NewReaderSize(local, 32*1024)
-	n, err := blocal.Read(window.buffer)
+	blocal := bufio.NewReaderSize(local, int(slice+MAXBUF))
+	firstBlock, err := blocal.Peek(int(slice))
 	if err != nil {
 		return nil, fmt.Errorf("Error loading the local hash window: %v", err)
 	}
-	wh.Write(window.buffer[:n])
-	pos := int64(n)
+	// Preparing hash sink
+	wh := NewRollingAdler32()
+	wh.Write(firstBlock)
+	pos := slice
 	fmt.Println("local read...")
 	t := time.Now()
 	for ; pos < diffs.Size; pos++ {
-		oldb, newb, err := window.slide(blocal)
+		oldb, newb, err := slide(blocal, int(slice))
 		if err != nil {
 			return nil, fmt.Errorf("Error sliding the local hash window at %v: %v", pos, err)
 		}
-		wh.Roll32(uint32(window.size()), oldb, newb)
+		wh.Roll32(uint32(slice), oldb, newb)
 		if pos%(MiB*250) == 0 {
 			if pos > 0 {
 				d := time.Since(t)
@@ -258,6 +229,20 @@ func AdvancedDiffs(server, filename, alike string, slice int64) (*Diffs, error) 
 	}
 	fmt.Println(pos / MiB)
 	return diffs, nil
+}
+
+// slide 
+func slide(r *bufio.Reader, slice int) (oldb, newb byte, err error) {
+	oldb, err = r.ReadByte()
+	if err != nil {
+		return
+	}
+	block, err := r.Peek(slice)
+	if err != nil {
+		return
+	}
+	newb = block[slice-1]
+	return
 }
 
 // readHeader reads the full .slicesync file/stream header checking that all is correct and returning the file size
@@ -320,4 +305,13 @@ func min(a, b int64) int64 {
 		return b
 	}
 	return a
+}
+
+func newHashNDumper(pathOrServer string) HashNDumper {
+	if pathOrServer == "." || strings.HasPrefix(pathOrServer, "/") {
+		fmt.Println("Local at", pathOrServer)
+		return &LocalHashNDump{pathOrServer}
+	}
+	fmt.Println("Remote at", pathOrServer)
+	return &RemoteHashNDump{pathOrServer}
 }
