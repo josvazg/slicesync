@@ -11,16 +11,15 @@ To make it as fast and efficient as possible while not imposing too much load on
 
 Slicesync client tool is given:
 
-- A .slicesync file URL containg the information to be downloaded
-- An optional destination filename
-- An optional alike local file
+- A file URL to be downloaded
+- An optional destination filename (it defaults to file URL's last path component name eg. 'a/b/c.txt' -> 'c.txt')
+- An optional alike local file (it defaults to the destination file)
 - An optional slice size (it defaults to the slice size in the downloaded .slicesync file)
 
 The client tool then:
 
-1. Downloads the remote .slicesync usage the URL
-2. Load or generate on the fly the local alike .slicesync to compare with
-3. Calculate the differences
+1. Downloads the remote .slicesync for the given URL (it must be pre-generated on the server)
+2. Calculate the differences (wich may require to read or generate on the fly the local alike .slicesync to compare to)
 4. Rebuild the remote file by mixing local available parts with remote parts
 5. At the end the generated file hash is compared with the remote file hash on .slicesync
 
@@ -29,12 +28,12 @@ The client tool then:
 
 On the server side there are various options:
 
-1. Use syncserver to serve the files over HTTP.
-2. Use any HTTP Range compliant server + "shash -service" on the background.
+1. Use syncserver to serve the files over HTTP while (re)generating the hash dumps on the background.
+2. Use any HTTP Range compliant server + start "shash -service" on the background.
 
-In any case the files are served per directory or directory tree (recursively). Either syncserver or shash -service will be populating .slicesync files for any new file that is copied to the managed directory or directory tree. Also, files deleted make the corresponding .slicesync file disappear.
+In any case the files are served per directory or directory tree (recursively). Either syncserver or shash -service will generate a .slicesync directory at the base directory to be served. Within that .slicesync/ directory, .slicesync files will be populated for any new file that is copied to the managed directory or directory tree. Also, files deleted make the corresponding .slicesync file disappear.
 
-To keep the filesystem as clean as possible, all .slicesync files are placed within a single .slicesync directory, one per managed directory tree. Similar to what git or mercurial do with their .git or .hg directories.
+Remember that, to keep the filesystem as clean as possible, all .slicesync files are placed within a single .slicesync directory, one per managed directory tree. Similar to what git or mercurial do with their .git or .hg directories.
 
 Apart from that the server just needs to honour HTTP Range requests properly so that the client only gets the new parts not know before of the files to be downloaded. The server provides access to both the .slicesync files and the actual desired files.
 
@@ -43,11 +42,12 @@ Apart from that the server just needs to honour HTTP Range requests properly so 
 
 Following zsync inspiration at http://zsync.moria.org.uk/paper/ch04s02.html, .slicesync files have the following header:
 
-    Version: 0.0.1
+    Version: 1
     Filename: somefile.extension
     Slice: 1048576
     Slice Hashing: adler32+md5
     Length: 4294967296
+
 
 Then there will be a Length/Slice lines containing the hashes of each slice in base64 format. Something like these:
 
