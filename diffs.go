@@ -34,8 +34,8 @@ type Diffs struct {
 // calcDiffsFunc returns the Diffs between remote filename and local alike or an error
 func calcDiffsFunc(server, filename, alike string, slice int64) (*Diffs, error)
 
-// defaultDiffBuilder points to the currently activated calcDiffsFunc function / algorithm
-var CalcDiffs = NaiveDiffs
+// DefaultCalcDiffs points to the currently activated calcDiffsFunc function / algorithm
+var DefaultCalcDiffs = NaiveDiffs
 
 // NewDiffs creates a Diffs data type
 func NewDiffs(server, filename, alike string, slice, size int64) *Diffs {
@@ -60,10 +60,22 @@ func (sd *Diffs) Print() string {
 	return dst.String()
 }
 
+// CalcDiffs calcs the differences between a remote fileurl and a local alike file
+func CalcDiffs(fileurl, alike string, slice int64) (*Diffs, error) {
+	if fileurl == "" {
+		return nil, fmt.Errorf("Invalid empty URL!")
+	}
+	server, filename, err := Probe(fileurl)
+	if err != nil {
+		return nil, err
+	}
+	return DefaultCalcDiffs(server, filename, alike, slice)
+}
+
 // NaiveDiffs returns the Diffs between remote filename and local alike or an error
 //
 // Algorithm:
-// 1. Open local and remote bulkHash streams
+// 1. Open local and remote Hash streams
 // 2. Read local and remote file sizes
 // 3. Build the diffs: 
 //    For each slice hash pairs check if they are different or not 
@@ -73,14 +85,14 @@ func (sd *Diffs) Print() string {
 func NaiveDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
 	// local & remote streams opening
 	localHnd := &LocalHashNDump{"."}
-	lc, err := localHnd.BulkHash(alike, slice)
+	lc, err := localHnd.Hash(alike)
 	if err != nil {
 		return nil, fmt.Errorf("Error opening local diff source: %v", err)
 	}
 	defer lc.Close()
 	local := bufio.NewReader(lc)
 	remoteHnd := &RemoteHashNDump{server}
-	rm, err := remoteHnd.BulkHash(filename, slice)
+	rm, err := remoteHnd.Hash(filename)
 	if err != nil {
 		return nil, fmt.Errorf("Error opening remote diff source: %v", err)
 	}
@@ -104,7 +116,7 @@ func NaiveDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
 		return nil, fmt.Errorf("DiffBuilder error: No differences produced to allow file reconstruction!")
 	}
 	// total hashes
-	hname := newHasher().Name()
+	hname := NewHasher().Name()
 	diffs.AlikeHash, err = readAttribute(local, hname)
 	if err != nil {
 		return nil, fmt.Errorf("Local file hash error: %v", err)
@@ -174,7 +186,7 @@ func diffsBuilder(diffs *Diffs, local, remote *bufio.Reader, lsize int64) error 
 func AdvancedDiffs(server, filename, alike string, slice int64) (*Diffs, error) {
 	fmt.Println("rhnd")
 	remoteHnd := newHashNDumper(server)
-	rm, err := remoteHnd.BulkHash(filename, slice)
+	rm, err := remoteHnd.Hash(filename)
 	if err != nil {
 		return nil, fmt.Errorf("Error opening remote diff source: %v", err)
 	}
@@ -252,7 +264,7 @@ func readHeader(r *bufio.Reader, filename string, slice int64) (size int64, err 
 		Version,
 		filepath.Base(filename),
 		fmt.Sprintf("%v", slice),
-		newSliceHasher().Name(),
+		NewSliceHasher().Name(),
 	}
 	for n, attr := range attrs {
 		val, err := readAttribute(r, attr)

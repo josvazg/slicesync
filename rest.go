@@ -1,167 +1,58 @@
 package slicesync
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
+	"net/url"
 	"path"
 	"strconv"
+	"strings"
 )
 
 // -- Server Side --
 
-// HashNDumpServer prepares an HTTP Server to Hash and Dump slices of files remotely
-func HashNDumpServer(port int, dir string) {
-	SetupHashNDump(&LocalHashNDump{dir})
-	http.ListenAndServe(fmt.Sprintf(":%v", port), nil)
+// ServeHashNDump runs an HTTP Server to download Hashes and slice Dumps slices of files remotely
+func ServeHashNDump(port int, dir, prefix string) {
+	if !strings.HasSuffix(prefix, "/") {
+		prefix = "/" + prefix
+	}
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+	addr := fmt.Sprintf(":%v", port)
+	//fmt.Println("prefix:", prefix)
+	smux := http.NewServeMux()
+	smux.HandleFunc("/favicon.ico", http.NotFound)
+	smux.Handle(prefix, http.StripPrefix(prefix, http.FileServer(http.Dir(dir))))
+	//fmt.Printf("smux=%#v\n", smux)
+	srv := &http.Server{Addr: addr, Handler: smux}
+	srv.ListenAndServe()
 }
-
-// HashNDumpServer prepares an HTTP Server to Hash and Dump slices of files remotely
-func SetupHashNDump(hnd *LocalHashNDump) {
-	http.HandleFunc("/favicon.ico", http.NotFound)
-	http.Handle("/hash/", http.StripPrefix("/hash/", hasher(hnd)))
-	http.Handle("/bulkhash/", http.StripPrefix("/bulkhash/", bulkhasher(hnd)))
-	http.Handle("/dump/", http.StripPrefix("/dump/", dumper(hnd)))
-}
-
-// hasher returns a rest/http request handler to return hash info, including hashes of file slices
-func hasher(hnd *LocalHashNDump) http.Handler {
+/*
+func filter(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		filename, offset, slice, err := readArgs(w, r)
-		if handleError(w, r, err) {
-			return
-		}
-		hi, err := hnd.Hash(filename, offset, slice)
-		if handleError(w, r, err) {
-			return
-		}
-		json, err := json.Marshal(hi)
-		if handleError(w, r, err) {
-			return
-		}
-		w.Write(json)
+		fmt.Println("url=", r.URL)
+		h.ServeHTTP(w, r)
 	})
-}
-
-// bulkhasher returns a rest/http request handler to return bulkhash stream
-func bulkhasher(hnd *LocalHashNDump) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		filename, _, slice, err := readArgs(w, r)
-		if handleError(w, r, err) {
-			return
-		}
-		in, err := hnd.BulkHash(filename, slice)
-		if handleError(w, r, err) {
-			return
-		}
-		io.Copy(w, in)
-	})
-}
-
-// dumper returns a rest/http request handler to return a file slice (or the entire file)
-func dumper(hnd *LocalHashNDump) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		filename, offset, slice, err := readArgs(w, r)
-		if handleError(w, r, err) {
-			return
-		}
-		sliced := !(offset == 0 && slice == 0)
-		sliceData, N, err := hnd.Dump(filename, offset, slice)
-		if handleError(w, r, err) {
-			return
-		}
-		w.Header().Set("Content-Length", fmt.Sprintf("%v", N))
-		w.Header().Set("Content-Type", "application/octet-stream")
-		downfilename := filename
-		if sliced {
-			downfilename = fmt.Sprintf("%s(%v-%v)%s",
-				noExt(filename), offset, slice, path.Ext(filename))
-		}
-		w.Header().Set("Content-Disposition",
-			fmt.Sprintf("attachment; filename=\"%s\"", downfilename))
-		io.Copy(w, sliceData)
-	})
-}
-
-// noExt returns the name without the extension
-func noExt(filename string) string {
-	return filename[0 : len(filename)-len(path.Ext(filename))]
-}
-
-// readArgs reads request args for hash & dump
-func readArgs(w http.ResponseWriter, r *http.Request) (f string, o, s int64, e error) {
-	filename := r.URL.Path
-	if filename != "" && filename[0] == '/' {
-		filename = filename[1:]
-	}
-	if filename == "" {
-		return "", 0, 0, fmt.Errorf("Expected filename argument!")
-	}
-	offset := r.FormValue("offset")
-	slice := r.FormValue("slice")
-	o = 0
-	s = AUTOSIZE
-	if offset != "" {
-		i, err := strconv.ParseInt(offset, 10, 64)
-		if err != nil {
-			return "", 0, 0, err
-		}
-		o = i
-	}
-	if slice != "" {
-		i, err := strconv.ParseInt(slice, 10, 64)
-		if err != nil {
-			return "", 0, 0, err
-		}
-		s = i
-	}
-	return filename, o, s, nil
-}
-
-// handleError displays err (if not nil) on Stderr and (if possible) displays a web error page
-// it also returns true if the error was found and handled and false if err was nil
-func handleError(w http.ResponseWriter, r *http.Request, err error) bool {
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return true
-	}
-	return false
-}
+}*/
 
 // -- Client Side --
 
-// RemoteHashNDump implements HashNDumper service remotely through a REST service
+// RemoteHashNDump implements HashNDumper service remotely through HTTP GET requests
 type RemoteHashNDump struct {
 	Server string
 }
 
-// Hash returns the hash of a remote file slice
-func (rhnd *RemoteHashNDump) Hash(filename string, pos, slice int64) (*HashInfo, error) {
-	resp, err := read(fullUrl(rhnd.Server, "hash/", filename, pos, slice))
-	if err != nil {
-		return nil, err
-	}
-	//fmt.Printf("%s\n", string(resp))
-	hi := HashInfo{}
-	err = json.Unmarshal(resp, &hi)
-	if err != nil {
-		return nil, err
-	}
-	return &hi, nil
-}
-
-// BulkHash returns the remote stream of hash slices
-func (rhnd *RemoteHashNDump) BulkHash(filename string, slice int64) (io.ReadCloser, error) {
-	r, _, e := open(bulkUrl(rhnd.Server, "bulkhash/", filename, slice))
+// Hash returns the remote stream of hash slices
+func (rhnd *RemoteHashNDump) Hash(filename string) (io.ReadCloser, error) {
+	r, _, e := get(hashUrl(rhnd.Server, filename), 0, 0)
 	return r, e
 }
 
-// Dump returns the hash of a remote file slice
+// Dump returns the contents of a remote slice of the file (or the full file)
 func (rhnd *RemoteHashNDump) Dump(filename string, pos, slice int64) (io.ReadCloser, int64, error) {
-	rc, r, err := open(fullUrl(rhnd.Server, "dump/", filename, pos, slice))
+	rc, r, err := get(dumpUrl(rhnd.Server, filename), pos, slice)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -172,42 +63,85 @@ func (rhnd *RemoteHashNDump) Dump(filename string, pos, slice int64) (io.ReadClo
 	return rc, N, err
 }
 
-// read opens (ROpen) a remote URL and reads the body contents into a byte slice
-func read(url string) ([]byte, error) {
-	//fmt.Printf("RRead %s\n", url)
-	r, _, err := open(url)
-	if err != nil {
-		return nil, err
+// probe detects the server base url and separates the server url and the filename for a given remote file url
+func Probe(probedUrl string) (server, filename string, err error) {
+	if !strings.Contains(probedUrl, "://") {
+		probedUrl = "http://" + probedUrl
 	}
-	defer r.Close()
-	buf := make([]byte, 512)
-	readed, err := r.Read(buf)
+	u, err := url.Parse(probedUrl)
 	if err != nil {
-		return nil, err
+		return "", "", err
 	}
-	return buf[:readed], nil
+	//fmt.Println("Probe ", u)
+	fullpath := u.Path
+	u.Path = path.Join("/", SlicesyncDir)
+	//fmt.Println("Testing ", u.String())
+	err = head(u.String() + "/")
+	if err == nil {
+		u.Path = "/"
+		server = u.String()
+		filename = fullpath[1:]
+		//fmt.Println("Probe Result -> ", server, filename)
+		return
+	}
+	for candidate := path.Dir(fullpath); len(candidate) > 0 && candidate != "/"; candidate = path.Dir(candidate) {
+		u.Path = path.Join(candidate, "/", SlicesyncDir, "/")
+		//fmt.Println("Testing ", u.String())
+		err = head(u.String() + "/")
+		if err == nil {
+			u.Path = candidate
+			server = u.String()
+			filename = fullpath[len(candidate)+1:]
+			//fmt.Println("Probe Result *-> ", server, filename)
+			return
+		}
+	}
+	u.Path = "/"
+	err = fmt.Errorf("Remote server %s does not seem to support slicesync! (last error was %v)", u, err)
+	return
 }
 
-// open a remote URL incoming stream
-func open(url string) (io.ReadCloser, *http.Response, error) {
-	//fmt.Printf("ROpen %s\n", url)
-	resp, err := http.Get(url)
+// head tries to access a url and returns an error if something is wrong or nil if all was fine
+func head(url string) error {
+	r, err := http.DefaultClient.Head(url)
+	if err != nil {
+		return err
+	}
+	if r.StatusCode != 200 {
+		return fmt.Errorf("Unexpected status %v!", r.Status)
+	}
+	return nil
+}
+
+// get a remote URL incoming stream
+func get(url string, pos, slice int64) (io.ReadCloser, *http.Response, error) {
+	//fmt.Printf("get %s\n", url)
+	get, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, nil, err
 	}
-	if resp.StatusCode != 200 {
+	if pos != 0 || slice != 0 {
+		get.Header.Add("Range", fmt.Sprintf("bytes=%v-%v", pos, pos+slice-1))
+	}
+	http.DefaultClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return fmt.Errorf("Check url %v, redirection should not be required!", url)
+	}
+	resp, err := http.DefaultClient.Do(get)
+	if err != nil {
+		return nil, nil, err
+	}
+	if resp.StatusCode != 200 && resp.StatusCode != 206 {
 		return nil, nil, fmt.Errorf("Error " + resp.Status + " connecting to " + url)
 	}
 	return resp.Body, resp, nil
 }
 
-// fullUrl returns the proper service Url for a server, method, filename, pos and slice
-func fullUrl(server, context, filename string, pos, slice int64) string {
-	return fmt.Sprintf("http://%s/%s%s?offset=%v&slice=%v",
-		server, context, filename, pos, slice)
+// dumpUrl returns the Url for the remote url file
+func dumpUrl(server, filename string) string {
+	return fmt.Sprintf("%s%s", server, filename)
 }
 
-// bulkUrl returns the bulk url service Url for bulkhash
-func bulkUrl(server, context, filename string, slice int64) string {
-	return fmt.Sprintf("http://%s/%s%s?slice=%v", server, context, filename, slice)
+// hashUrl returns the Url for the hash dump of remote url file
+func hashUrl(server, filename string) string {
+	return fmt.Sprintf("%s%s%s%s", server, SlicesyncDir, filename, SliceSyncExt)
 }

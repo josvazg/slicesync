@@ -2,6 +2,7 @@ package slicesync_test
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/josvazg/slicesync"
 	"io"
 	"io/ioutil"
@@ -47,13 +48,20 @@ func TestSlices(t *testing.T) {
 			t.Fatalf("Test #%d failed: expected '%s' but got '%s'\n%v\n",
 				i, test.expected, str, test)
 		}
-		fi, err := hnd.Hash(test.filename, test.start, test.len)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if fi.Hash != test.goodhash {
-			t.Fatalf("Test #%d failed: expected hash %s but got %s\n",
-				i, test.goodhash, fi.Hash)
+		hsh := hash(buf.Bytes(), test.len != 0)
+		if hsh != test.goodhash {
+			t.Fatalf("Test #%d failed: expected hash '%s' but got '%s'\n", i, test.goodhash, hsh)
 		}
 	}
+}
+
+func hash(bytes []byte, sliced bool) string {
+	var h slicesync.NamedHash
+	if sliced {
+		h = slicesync.NewSliceHasher()
+	} else {
+		h = slicesync.NewHasher()
+	}
+	h.Write(bytes)
+	return fmt.Sprintf("%v-%x", h.Name(), h.Sum(nil))
 }

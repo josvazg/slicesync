@@ -13,9 +13,9 @@ import (
 const (
 	AUTOSIZE        = 0 // Use AUTOSIZE when you don't know or care for the total file or slice size 
 	MiB             = 1048576
-	Version         = "0.0.1"
+	Version         = "1"
 	SliceSyncExt    = ".slicesync"
-	SlicesyncDir    = SliceSyncExt
+	SlicesyncDir    = SliceSyncExt + "/"
 	TmpSliceSyncExt = ".tmp" + SliceSyncExt
 	bufferSize      = 1024
 )
@@ -30,18 +30,9 @@ func (l *LimitedReadCloser) Close() error {
 	return (l.R).(io.Closer).Close()
 }
 
-// HasInfo info to be sent back
-type HashInfo struct {
-	Size   int64
-	Offset int64
-	Slice  int64
-	Hash   string
-}
-
 // HashNDumper is the Service (local or remote) allowing slice based file synchronizations
 type HashNDumper interface {
-	Hash(filename string, offset, slice int64) (*HashInfo, error)
-	BulkHash(filename string, slice int64) (io.ReadCloser, error)
+	Hash(filename string) (io.ReadCloser, error)
 	Dump(filename string, offset, slice int64) (io.ReadCloser, int64, error)
 }
 
@@ -54,6 +45,12 @@ type LocalHashNDump struct {
 // Blocking single threaded function (no go-routines), for quite a heavy background process
 // It returns any error it encounters in the process
 func HashDir(dir string, slice int64, recursive bool) error {
+	return hashDir(dir, "", slice, recursive)
+}
+
+// hashDir performs HashDir recursive work
+func hashDir(basedir, reldir string, slice int64, recursive bool) error {
+	dir := filepath.Join(basedir, reldir)
 	fi, err := os.Lstat(dir)
 	if err != nil {
 		return err
@@ -70,8 +67,9 @@ func HashDir(dir string, slice int64, recursive bool) error {
 		return err
 	}
 	for _, f := range fis {
-		if needsHashing(f, slice, dir) {
-			if err := HashFile(filepath.Join(dir, f.Name()), slice); err != nil {
+		filename := filepath.Join(reldir, f.Name())
+		if needsHashing(f, slice, dir, filename) {
+			if err := HashFile(basedir, filename, slice); err != nil {
 				return err
 			}
 		}
@@ -79,7 +77,7 @@ func HashDir(dir string, slice int64, recursive bool) error {
 	if recursive {
 		for _, f := range fis {
 			if f.IsDir() && f.Name() != SlicesyncDir {
-				if err := HashDir(filepath.Join(dir, f.Name()), slice, recursive); err != nil {
+				if err := hashDir(basedir, filepath.Join(reldir, f.Name()), slice, recursive); err != nil {
 					return err
 				}
 			}
@@ -88,19 +86,34 @@ func HashDir(dir string, slice int64, recursive bool) error {
 	return nil
 }
 
-// hashFile produces a filename+".slicesync" file with the full bulkhash dump of filename
-func HashFile(filename string, slice int64) (err error) {
+// hashFile produces a ".slicesync/"+filename+".slicesync" file with the full hash dump of filename
+//
+// Output is as follows:
+// * First there is a hash info header containing:
+// ** Version: of the hash dump
+// ** Filename: hashed
+// ** Slice: size of each sliced block
+// ** Slice Hashing: algorithm chosen for hashing
+// ** Length: of the file
+// * Then there are size / slice lines each with a slice hash for consecutive slices
+// * And finally there is the line {File Hashing name}+": "+total file hash 
+//
+// (File Hashing algorithm is usually different from )
+func HashFile(basedir, filename string, slice int64) (err error) {
+	tmpFile := tmpSlicesyncFile(basedir, filename)
+	hashFile := slicesyncFile(basedir, filename)
 	done := false
 	if slice <= 0 { // protection against infinite loop by bad arguments
 		slice = MiB
 	}
-	fhdump, err := os.OpenFile(tmpSlicesyncFile(filename), os.O_CREATE|os.O_WRONLY, 0750)
+	mkdirs4File(tmpFile)
+	fhdump, err := os.OpenFile(tmpFile, os.O_CREATE|os.O_WRONLY, 0750)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		if done {
-			err = os.Rename(tmpSlicesyncFile(filename), slicesyncFile(filename))
+			err = os.Rename(tmpFile, hashFile)
 		}
 	}()
 	defer fhdump.Close()
@@ -113,21 +126,13 @@ func HashFile(filename string, slice int64) (err error) {
 	if err != nil {
 		return err
 	}
-	bulkHashDump(fhdump, file, filename, slice, fi.Size())
+	hashDump(fhdump, file, filename, slice, fi.Size())
 	done = true
 	return
 }
 
-// BulkHash calculates the file hash and all hashes of size slice and writes them to w
-//
-// Output is as follows:
-// first text line is the file size
-// then there are size / slice lines each with a slice hash for consecutive slices
-// finally there is the line "Final: "+total file hash
-//
-// Post initialization errors are dumped in-line starting as a "Error: "... line
-// Nothing more is sent after an error occurs and is dumped to w
-func (hnd *LocalHashNDump) BulkHash(filename string, slice int64) (rc io.ReadCloser, err error) {
+// Hash dumps a precalculated (by HashFile) file hash dump
+func (hnd *LocalHashNDump) Hash(filename string) (rc io.ReadCloser, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
@@ -138,28 +143,11 @@ func (hnd *LocalHashNDump) BulkHash(filename string, slice int64) (rc io.ReadClo
 	}()
 	f, err := os.Lstat(filename)
 	autopanic(err)
-	fullfilename := calcpath(hnd.Dir, filename)
-	if !hasBulkHashFile(f, slice, hnd.Dir) { // generate the bulkhash dump now
-		file, err := os.Open(fullfilename) // For read access
-		autopanic(err)
-		if slice <= 0 { // protection against infinite loop by bad arguments
-			slice = MiB
-		}
-		fi, err := file.Stat()
-		autopanic(err)
-		r, w := io.Pipe()
-		/*fhdump, err := os.OpenFile(fullfilename, os.O_CREATE|os.O_WRONLY, 0750)
-		autopanic(err)*/
-		go func() {
-			defer w.Close()
-			//defer fhdump.Close()
-			//bulkHashDump(io.MultiWriter(w, fhdump), file, filename, slice, fi.Size())
-			bulkHashDump(w, file, filename, slice, fi.Size())
-		}()
-		return r, nil
+	hfile := slicesyncFile(hnd.Dir, filename)
+	if !isHashFileValid(f, hfile) {
+		return nil, fmt.Errorf("Hash dump (file %v) not valid for %v at %v!\n", hfile, filename, hnd.Dir)
 	}
-	// re-read the pre-generated bulkhash dump
-	file, err := os.Open(slicesyncFile(filename)) // For read access
+	file, err := os.Open(hfile) // For read access
 	autopanic(err)
 	r, w := io.Pipe()
 	go func() {
@@ -172,19 +160,19 @@ func (hnd *LocalHashNDump) BulkHash(filename string, slice int64) (rc io.ReadClo
 	return r, nil
 }
 
-// bulkHashDump produces BulkHash output into the given writer for the given slice and file size
-func bulkHashDump(w io.Writer, file io.ReadCloser, filename string, slice, size int64) {
+// hashDump produces a Hash dump output into the given writer for the given slice and file size
+func hashDump(w io.Writer, file io.ReadCloser, filename string, slice, size int64) {
 	defer file.Close()
 	bufW := bufio.NewWriterSize(w, bufferSize)
 	defer bufW.Flush()
-	sliceHash := newSliceHasher()
+	sliceHash := NewSliceHasher()
 	fmt.Fprintf(bufW, "Version: %v\n", Version)
 	fmt.Fprintf(bufW, "Filename: %v\n", filepath.Base(filename))
 	fmt.Fprintf(bufW, "Slice: %v\n", slice)
 	fmt.Fprintf(bufW, "Slice Hashing: %v\n", sliceHash.Name())
 	fmt.Fprintf(bufW, "Length: %v\n", size)
 	if size > 0 {
-		h := newHasher()
+		h := NewHasher()
 		hashSink := io.MultiWriter(h, sliceHash)
 		readed := int64(0)
 		var err error
@@ -206,34 +194,18 @@ func bulkHashDump(w io.Writer, file io.ReadCloser, filename string, slice, size 
 	}
 }
 
-// needHashing returns true ONLY if there isn't a f.Name()+".slicesync" older than f.Name() itself
-func needsHashing(f os.FileInfo, slice int64, dir string) bool {
+// needHashing returns true ONLY if there isn't a hash for filename at basedir
+func needsHashing(f os.FileInfo, slice int64, basedir, filename string) bool {
 	if !f.IsDir() && f.Size() > slice {
-		return !hasBulkHashFile(f, slice, dir)
+		return !isHashFileValid(f, slicesyncFile(basedir, filename))
 	}
 	return false
 }
 
-// hasBulkHashFile returns true if there is a valid bulkhash .slicesync file for filename
-func hasBulkHashFile(f os.FileInfo, slice int64, dir string) bool {
-	hdump, err := os.Lstat(slicesyncFile(filepath.Join(dir, f.Name())))
-	return err == nil && hdump != nil && hdump.ModTime().After(f.ModTime())
-}
-
-// Hash returns the Hash (sha-1) for a file slice or the full file
-// slice size of 0=AUTOSIZE means "rest of the file"
-func (hnd *LocalHashNDump) Hash(filename string, offset, slice int64) (
-	hi *HashInfo, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			if _, ok := r.(runtime.Error); ok {
-				panic(r)
-			}
-			err = r.(error)
-		}
-	}()
-	hi = doHash(calcpath(hnd.Dir, filename), offset, slice, autoHasher(offset, slice))
-	return
+// isHashFileValid returns true if there is a valid hash dump (.slicesync) file for filename
+func isHashFileValid(f os.FileInfo, hfilename string) bool {
+	hdump, err := os.Lstat(hfilename)
+	return err == nil && hdump != nil && !hdump.ModTime().Before(f.ModTime())
 }
 
 // Dump opens a file to read just a slice of it
@@ -264,24 +236,6 @@ func calcpath(dir, filename string) string {
 	return fullpath
 }
 
-// doHash is the internal function that calculates the local hash of the given slice of filename
-func doHash(filename string, offset, slice int64, h namedHash) *HashInfo {
-	file, err := os.Open(filename) // For read access
-	autopanic(err)
-	defer file.Close()
-	fi, err := file.Stat()
-	autopanic(err)
-	toread := sliceFile(file, fi.Size(), offset, slice)
-	hash := ""
-	if toread > 0 {
-		h.Reset()
-		_, err = io.CopyN(h, file, toread)
-		autopanic(err)
-		hash = fmt.Sprintf("%v-%x", h.Name(), h.Sum(nil))
-	}
-	return &HashInfo{fi.Size(), offset, toread, hash}
-}
-
 // dump is the internal function that opens the file to read just a slice of it
 func dump(filename string, offset, slice int64) *LimitedReadCloser {
 	file, err := os.Open(filename) // For read access
@@ -309,21 +263,23 @@ func sliceFile(file *os.File, max, offset, slice int64) int64 {
 }
 
 // tmpSlicesyncFile returns the corresponding temporary .tmp.slicesync file for filename
-func tmpSlicesyncFile(filename string) string {
-	return filepath.Join(slicesyncDir(filename), filepath.Base(filename)+TmpSliceSyncExt)
+func tmpSlicesyncFile(basedir, filename string) string {
+	return filepath.Join(slicesyncDir(basedir, filename), filepath.Base(filename)+TmpSliceSyncExt)
 }
 
 // slicesyncFile returns the corresponding .slicesync file for filename
-func slicesyncFile(filename string) string {
-	return filepath.Join(slicesyncDir(filename), filepath.Base(filename)+SliceSyncExt)
+func slicesyncFile(basedir, filename string) string {
+	return filepath.Join(slicesyncDir(basedir, filename), filepath.Base(filename)+SliceSyncExt)
 }
 
-// slicesyncDir returns the .slicesync base directory of a given file
-func slicesyncDir(filename string) string {
-	dir := filepath.Dir(filename)
-	dir = filepath.Join(dir, SlicesyncDir)
-	os.MkdirAll(dir, 0750)
-	return dir
+// slicesyncDir returns the .slicesync based directory location of a given file
+func slicesyncDir(basedir, filename string) string {
+	return filepath.Join(basedir, SlicesyncDir, filepath.Dir(filename))
+}
+
+// mkdirs4File ensures filename's dir is make if it needs to be
+func mkdirs4File(filename string) {
+	os.MkdirAll(filepath.Dir(filename), 0750)
 }
 
 // autopanic panic on any non-nil error

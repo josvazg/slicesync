@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha1"
 	"flag"
 	"fmt"
 	"github.com/josvazg/slicesync"
@@ -23,7 +24,7 @@ func pct(bytes, total int64) float64 {
 // usage displays command usage information
 func usage() {
 	fmt.Printf("Usage: %v filename\n", os.Args[0])
-	fmt.Printf("   or: %v [-bulkhash filename]\n", os.Args[0])
+	fmt.Printf("   or: %v [-hashdump filename]\n", os.Args[0])
 	fmt.Printf("   or: %v [-dir directory] [-slice size] [-service] [-r]\n", os.Args[0])
 	fmt.Printf("   or: %v [-help]\n\n", os.Args[0])
 	flag.PrintDefaults()
@@ -70,18 +71,22 @@ func hashingService(dir string, slice int64, recursive bool) {
 
 // hashAFile calculates the whole file hash and displays it, just like shasum
 func hashAFile(filename string) {
-	fmt.Printf("Hashing %v...\n", filename)
-	hnd := slicesync.LocalHashNDump{"."}
-	hi, err := hnd.Hash(filename, 0, slicesync.AUTOSIZE)
+	//fmt.Printf("Hashing %v...\n", filename)
+	h := sha1.New()
+	f, err := os.Open(filename)
 	exitOnError(err)
-	fmt.Println(hi.Hash)
+	defer f.Close()
+	_, err = io.Copy(h, f)
+	exitOnError(err)
+	fmt.Printf("sha1-%x  %v\n", h.Sum(nil), filename)
 }
 
-// bulkHash produces the .slicesync bulkhash dump for the given filename
-func bulkHash(filename string, slice int64) {
+// hashDump produces the .slicesync hash dump for the given filename
+func hashDump(filename string, slice int64) {
 	fmt.Printf("Hash dump (.slicesync file) for %v...\n", filename)
-	hnd := slicesync.LocalHashNDump{"."}
-	r, err := hnd.BulkHash(filename, slice)
+	err := slicesync.HashFile(".", filename, slice)
+	hnd := slicesync.LocalHashNDump{Dir: "."}
+	r, err := hnd.Hash(filename)
 	exitOnError(err)
 	io.Copy(os.Stdout, r)
 }
@@ -90,24 +95,24 @@ func main() {
 	var slice int64
 	var recursive bool
 	var service bool
-	var bulkhash string
+	var hashdump string
 	var dir string
 	var help bool
 	flag.Int64Var(&slice, "slice", slicesync.MiB, "(Optional) Slice size")
-	flag.BoolVar(&recursive, "r", false, "Recursive Bulkhash directory preparation")
+	flag.BoolVar(&recursive, "r", false, "Recursive Hash Dump directory preparation")
 	flag.BoolVar(&service, "service", false, "Service process to repeatedly prepare Bulkhash on this directory")
-	flag.StringVar(&bulkhash, "bulkhash", "", "Generate a bulkhash dump of the given file")
-	flag.StringVar(&dir, "dir", ".", "Directory base of generated bulkhashes")
+	flag.StringVar(&hashdump, "hashdump", "", "Generate a hash dump of the given file")
+	flag.StringVar(&dir, "dir", ".", "Directory base of generated hash dumps")
 	flag.BoolVar(&help, "help", false, "Show command help")
 	flag.Parse()
 	if help {
 		usage()
 	} else if service {
 		hashingService(dir, slice, recursive)
+	} else if hashdump != "" {
+		hashDump(hashdump, slice)
 	} else if recursive || len(flag.Args()) == 0 {
 		hashOnce(dir, slice, recursive)
-	} else if bulkhash != "" {
-		bulkHash(bulkhash, slice)
 	} else {
 		hashAFile(flag.Args()[0])
 	}

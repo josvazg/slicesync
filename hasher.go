@@ -10,8 +10,8 @@ const (
 	SLICEHASH_SIZE = 20
 )
 
-// namedHash is a hash.Hash with a name
-type namedHash interface {
+// NamedHash is a hash.Hash with a name
+type NamedHash interface {
 	hash.Hash
 	Name() string
 }
@@ -93,20 +93,12 @@ func (ch *complexHash) Name() string {
 }
 
 // newHasher returns a Hash implementation for the whole file (usually SHA1)
-func newHasher() namedHash {
+func NewHasher() NamedHash {
 	return &simpleHash{sha1.New(), "sha1"}
 }
 
 // newSliceHasher returns a Hash implementation for each slice 
 // (SHA1 on naive implementation or rolling+hash in rsync's symulation)
-func newSliceHasher() namedHash {
+func NewSliceHasher() NamedHash {
 	return &complexHash{NewRollingAdler32(), md5.New(), "adler32+md5"}
-}
-
-// autoHasher returns a newHasher() if the offset is 0 and slice is AUTOSIZE and newSliceHasher() otherwise
-func autoHasher(offset, slice int64) namedHash {
-	if offset == 0 && slice == AUTOSIZE {
-		return newHasher()
-	}
-	return newSliceHasher()
 }

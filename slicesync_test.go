@@ -15,9 +15,35 @@ DDDDDDDDD
 EEEeEEEEE
 AAAAAAAaA
 `
-	filename = "testfile.txt"
-	port     = 8000
+	host      = "localhost"
+	port      = 8000
+	probeFile = "a/b/c/file.txt"
 )
+
+var probetests = []struct {
+	base, path string
+}{
+	{"a/b", "c/file.txt"},
+	{"", "a/b/c/file.txt"},
+	{"a", "b/c/file.txt"},
+	{"a/b/c", "file.txt"},
+}
+
+func TestProbe(t *testing.T) {
+	slicesync.HashDir(".", slicesync.MiB, false)
+	p := port + 1
+	for i, pt := range probetests {
+		probeUrl := fmt.Sprintf("%v:%v/%v", host, p+i, probeFile)
+		go slicesync.ServeHashNDump(p+i, ".", pt.base)
+		server, file, e := slicesync.Probe(probeUrl)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if file != pt.path {
+			t.Fatalf("Test %d: Expected path %v but got %v (server=%v)!\n", i, pt.path, file, server)
+		}
+	}
+}
 
 var synctests = []struct {
 	filename, content  string
@@ -28,18 +54,27 @@ var synctests = []struct {
 }
 
 func TestSync(t *testing.T) {
-	server := fmt.Sprintf("localhost:%v", port)
 	err := ioutil.WriteFile("testfile.txt", ([]byte)(testfile), 0750)
 	if err != nil {
 		t.Fatal(err)
 	}
-	go slicesync.HashNDumpServer(port, ".")
+	go slicesync.ServeHashNDump(port, ".", "")
+	url := fmt.Sprintf("%v:%v/%v", host, port, "testfile.txt")
 	for i, st := range synctests {
 		err := ioutil.WriteFile(st.filename, ([]byte)(st.content), 0750)
 		if err != nil {
 			t.Fatal(err)
 		}
-		diffs, err := slicesync.Slicesync(server, filename, st.filename, "", st.slice)
+		// prepares diffs to be served AFTER the file were created
+		err = slicesync.HashFile(".", "testfile.txt", st.slice)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = slicesync.HashFile(".", st.filename, st.slice)
+		if err != nil {
+			t.Fatal(err)
+		}
+		diffs, err := slicesync.Slicesync(url, st.filename, "", st.slice)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -47,5 +82,6 @@ func TestSync(t *testing.T) {
 			t.Fatalf("Test %d: Expected %d differences to sync %s, but got %d!\n",
 				i, st.differences, st.filename, diffs.Differences)
 		}
+
 	}
 }

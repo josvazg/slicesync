@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 )
 
 // Slicesync copies remote filename from server to local destfile, 
 // using as much of local alike as possible
 //
-// server is the url of the server holding filename
-// filename is the remote file to download
+// fileurl points to the remote file to download
 // destfile is the local destination, same as filename if empty
 // alike is the local alike file to compare with and save downloads, same as destfile if empty
 // slice is the size of each of the slices to sync
@@ -21,16 +21,23 @@ import (
 // 3. Check local & remote hash
 // 4. If all is well the generated diff is returned
 //
-func Slicesync(server, filename, destfile, alike string, slice int64) (diffs *Diffs, err error) {
+func Slicesync(fileurl, destfile, alike string, slice int64) (diffs *Diffs, err error) {
+	if fileurl == "" {
+		return nil, fmt.Errorf("Invalid empty URL!")
+	}
+	server, filename, err := Probe(fileurl)
+	if err != nil {
+		return nil, err
+	}
 	if destfile == "" {
-		destfile = filename
+		destfile = filepath.Base(filename)
 	}
 	if alike == "" {
 		alike = destfile
 	}
 	// 0. Bypass process and Download directly if there is no alike file
 	if !exists(alike) {
-		downloaded, err := Download(destfile, "http://"+server+"/dump/"+filename)
+		downloaded, err := Download(destfile, server+"/"+filename)
 		if err != nil {
 			return nil, fmt.Errorf("Direct Download error: %v", err)
 		}
@@ -39,7 +46,7 @@ func Slicesync(server, filename, destfile, alike string, slice int64) (diffs *Di
 		return diffs, nil
 	}
 	// 1. CalcDiffs
-	diffs, err = CalcDiffs(server, filename, alike, slice)
+	diffs, err = DefaultCalcDiffs(server, filename, alike, slice)
 	if err != nil {
 		return nil, fmt.Errorf("Error calculating differences: %v", err)
 	}
@@ -63,7 +70,7 @@ func DownloadDiffs(destfile string, diffs *Diffs) (downloaded int64, hash string
 		return
 	}
 	defer file.Close()
-	h := newHasher()
+	h := NewHasher()
 	var source io.ReadCloser
 	sink := io.MultiWriter(file, h)
 	localHnd := &LocalHashNDump{"."}
@@ -94,7 +101,7 @@ func DownloadDiffs(destfile string, diffs *Diffs) (downloaded int64, hash string
 
 // Download simply downloads a URL to destfile (no hash calculus is done or returned)
 func Download(destfile, url string) (downloaded int64, err error) {
-	r, _, err := open(url)
+	r, _, err := get(url, 0, 0)
 	if err != nil {
 		return
 	}

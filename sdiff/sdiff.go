@@ -20,26 +20,25 @@ func pct(bytes, total int64) float64 {
 }
 
 func main() {
-	if len(os.Args) < 4 {
+	if len(os.Args) < 3 {
 		fmt.Printf(
-			"Usage: %v {server} {filename} {local alike} (optional slice, 1MB by default)\n",
+			"Usage: %v {fileurl} {local alike} (optional slice, 1MB by default)\n",
 			os.Args[0])
 		return
 	}
-	server := os.Args[1]
-	filename := os.Args[2]
-	alike := os.Args[3]
+	fileurl := os.Args[1]
+	alike := os.Args[2]
 	slice := int64(MiB)
-	if len(os.Args) > 4 {
+	if len(os.Args) > 3 {
 		var err error
-		slice, err = strconv.ParseInt(os.Args[4], 10, 64)
+		slice, err = strconv.ParseInt(os.Args[3], 10, 64)
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
 	}
-	fmt.Printf("diff http://%s/dump/%s -> %s\n[slice=%v]\n", server, filename, alike, slice)
-	diffs, err := slicesync.CalcDiffs(server, filename, alike, slice)
+	fmt.Printf("diff http://%s -> %s\n[slice=%v]\n", fileurl, alike, slice)
+	diffs, err := slicesync.CalcDiffs(fileurl, alike, slice)
 	if err != nil {
 		fmt.Fprint(os.Stderr, err.Error()+"\n")
 		return
