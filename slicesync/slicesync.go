@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/josvazg/slicesync"
 	"os"
-	"path/filepath"
 )
 
 const (
@@ -20,6 +19,11 @@ func pct(bytes, total int64) float64 {
 	return float64(bytes*100) / float64(total)
 }
 
+func usage() {
+	fmt.Printf("Usage: %v [-to destination] [-alike localAlike] [-slice bytes, default=1MB] {fileurl}\n", os.Args[0])
+	flag.PrintDefaults()
+}
+
 func main() {
 	var to, alike string
 	var slice int64
@@ -28,32 +32,24 @@ func main() {
 	flag.Int64Var(&slice, "slice", MiB, "(Optional) Slice size")
 	flag.Parse()
 	if len(flag.Args()) < 2 {
-		fmt.Printf("Usage: %v [-to destination] [-alike localAlike] [-slice bytes, default=1MB]"+
-			"{server} {filename}\n", os.Args[0])
+		usage()
 		return
 	}
-	server := flag.Arg(0)
-	filename := flag.Arg(1)
-	if server == "" || filename == "" {
-		flag.PrintDefaults()
+	fileurl := flag.Arg(0)
+	if fileurl == "" {
+		usage()
 		return
 	}
-	d := to
-	if d == "" {
-		d = filename
+	d := ""
+	if to != "" {
+		d = "->" + to
 	}
 	a := ""
 	if alike != "" {
-		a = fmt.Sprintf("(alike='%s')", alike)
+		a = fmt.Sprintf("(alike='%s')\n", alike)
 	}
-	d, err := filepath.Abs(d)
-	if err != nil {
-		fmt.Fprint(os.Stderr, err.Error()+"\n")
-		return
-	}
-	fmt.Printf("slicesync\nhttp://%s/dump/%s -> %s \n%s\n[slice=%v]\n",
-		server, filename, d, a, slice)
-	diffs, err := slicesync.Slicesync(server, filename, d, alike, slice)
+	fmt.Printf("slicesync\nhttp://%s %s\n%s[slice=%v]\n", fileurl, d, a, slice)
+	diffs, err := slicesync.Slicesync(fileurl, d, alike, slice)
 	if err != nil {
 		fmt.Fprint(os.Stderr, err.Error()+"\n")
 		return

@@ -4,7 +4,7 @@
 
 SliceSync goal is to allow efficient big file versions updates from an standard HTTP server or the slicesync's syncserver itself.
 
-To make it as fast and efficient as possible while not impossing too much load on the server side, slicesync prepares a bulk hash dump (.slicesync) file for each file to be sent from the server. That file contains some information of the file to be downloaded, most importantly, the hash of each of the slices of that file and the full file hash. That info only needs to be re-calculated when the original file changes.
+To make it as fast and efficient as possible while not imposing too much load on the server side, slicesync prepares a hash dump (.slicesync) file for each file to be sent from the server. That file contains some information of the file to be downloaded, most importantly, the hash of each of the slices of that file and the full file hash. That info only needs to be re-calculated when the original file changes.
 
 
 ### Client
