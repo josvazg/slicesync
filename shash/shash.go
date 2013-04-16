@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 )
 
 // toMiB translates bytes into MiBytes
@@ -61,12 +60,7 @@ func hashingService(dir string, slice int64, recursive bool) {
 	dir, err := filepath.Abs(dir)
 	exitOnError(err)
 	fmt.Printf("Watching and Hashing directory '%s'%s...\n", dir, mode(recursive))
-	for {
-		if err := slicesync.HashDir(dir, slice, recursive); err != nil {
-			fmt.Fprint(os.Stderr, err.Error()+"\n")
-		}
-		time.Sleep(1 * time.Second)
-	}
+	slicesync.HashService(dir, slice, recursive, slicesync.DEFAULT_PERIOD)
 }
 
 // hashAFile calculates the whole file hash and displays it, just like shasum

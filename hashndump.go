@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 const (
@@ -20,6 +21,7 @@ const (
 	TmpSliceSyncExt = ".tmp" + SliceSyncExt
 	bufferSize      = 1024
 	nfiles          = 3
+	DEFAULT_PERIOD  = 1 * time.Second
 )
 
 // LimitedReadCloser reads just N bytes from a reader and allows to close it as well
@@ -41,6 +43,16 @@ type HashNDumper interface {
 // LocalHashNDump implements the HashNDump Service locally
 type LocalHashNDump struct {
 	Dir string
+}
+
+// HashService continually hashes the given directory with hash dumps of size slice and recursively (if asked to)
+func HashService(dir string, slice int64, recursive bool, period time.Duration) {
+	for {
+		if err := HashDir(dir, slice, recursive); err != nil {
+			fmt.Fprint(os.Stderr, err.Error()+"\n")
+		}
+		time.Sleep(period)
+	}
 }
 
 // HashDir prepares the hashes of all files in the given directory, recursively if asked to

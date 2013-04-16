@@ -41,9 +41,8 @@ func main() {
 	if len(os.Args) > 4 {
 		recursive = !(os.Args[4] == "non-recursive")
 	}
-	fmt.Printf("slicesync server (Hash&Dump) listening at %v and serving %s...\n", port, dir)
-	go slicesync.HashDir(".", slice, recursive)
-	slicesync.ServeHashNDump(port, dir, "")
+	fmt.Printf("Slicesync server (Hash&Dump) hashing&serving directory %v at port %v...\n", dir, port)
+	slicesync.HashNServe(port, dir, slice, recursive)
 }
 
 func usage() {

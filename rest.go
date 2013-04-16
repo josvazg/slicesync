@@ -12,6 +12,12 @@ import (
 
 // -- Server Side --
 
+// HashNServe starts both a hash service preparing hash dumps and an http to serve them and the normal files remotely
+func HashNServe(port int, dir string, slice int64, recursive bool) {
+	go HashService(dir, slice, recursive, DEFAULT_PERIOD)
+	ServeHashNDump(port, dir, "/")
+}
+
 // SetupHashNDumpServer prepares a Handler for a HashNDumpServer
 func SetupHashNDumpServer(dir, prefix string) http.Handler {
 	if !strings.HasSuffix(prefix, "/") {

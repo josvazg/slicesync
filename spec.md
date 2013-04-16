@@ -19,7 +19,7 @@ Slicesync client tool is given:
 The client tool then:
 
 1. Downloads the remote .slicesync for the given URL (it must be pre-generated on the server)
-2. Calculate the differences (wich may require to read or generate on the fly the local alike .slicesync to compare to)
+2. Calculate the differences (which may require to read or generate on the fly the local alike .slicesync to compare to)
 4. Rebuild the remote file by mixing local available parts with remote parts
 5. At the end the generated file hash is compared with the remote file hash on .slicesync
 
@@ -33,7 +33,7 @@ On the server side there are various options:
 
 In any case the files are served per directory or directory tree (recursively). Either syncserver or shash -service will generate a .slicesync directory at the base directory to be served. Within that .slicesync/ directory, .slicesync files will be populated for any new file that is copied to the managed directory or directory tree. Also, files deleted make the corresponding .slicesync file disappear.
 
-Remember that, to keep the filesystem as clean as possible, all .slicesync files are placed within a single .slicesync directory, one per managed directory tree. Similar to what git or mercurial do with their .git or .hg directories.
+Remember that, to keep the file-system as clean as possible, all .slicesync files are placed within a single .slicesync directory, one per managed directory tree. Similar to what git or mercurial do with their .git or .hg directories.
 
 Apart from that the server just needs to honour HTTP Range requests properly so that the client only gets the new parts not know before of the files to be downloaded. The server provides access to both the .slicesync files and the actual desired files.
 
