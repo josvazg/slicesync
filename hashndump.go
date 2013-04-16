@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 const (
@@ -15,9 +16,10 @@ const (
 	MiB             = 1048576
 	Version         = "1"
 	SliceSyncExt    = ".slicesync"
-	SlicesyncDir    = SliceSyncExt + "/"
+	SlicesyncDir    = SliceSyncExt
 	TmpSliceSyncExt = ".tmp" + SliceSyncExt
 	bufferSize      = 1024
+	nfiles          = 3
 )
 
 // LimitedReadCloser reads just N bytes from a reader and allows to close it as well
@@ -45,43 +47,70 @@ type LocalHashNDump struct {
 // Blocking single threaded function (no go-routines), for quite a heavy background process
 // It returns any error it encounters in the process
 func HashDir(dir string, slice int64, recursive bool) error {
+	//fmt.Println("HASDIR", dir, slice, recursive)
+	if e := os.MkdirAll(SlicesyncDir, 0750); e != nil {
+		return e
+	}
 	return hashDir(dir, "", slice, recursive)
 }
 
 // hashDir performs HashDir recursive work
 func hashDir(basedir, reldir string, slice int64, recursive bool) error {
 	dir := filepath.Join(basedir, reldir)
-	fi, err := os.Lstat(dir)
-	if err != nil {
-		return err
+	//fmt.Println("hashDir", basedir, reldir, slice, recursive)
+	hdir := slicesyncDir(basedir, reldir)
+	if exists(hdir) {
+		//fmt.Println("clean up in ", hdir, "against", dir)
+		if err := foreachFileInDir(hdir, func(fi os.FileInfo) error {
+			hfilename := filepath.Join(hdir, fi.Name())
+			filename := file4slicesync(hfilename)
+			//fmt.Println(hfilename, "->", filename, exists(filename))
+			if !exists(filename) {
+				//fmt.Println("REMOVE ", hfilename)
+				if e := os.RemoveAll(hfilename); e != nil {
+					return e
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
 	}
-	if !fi.IsDir() {
-		return fmt.Errorf("%s is not a Directory!", dir)
-	}
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	fis, err := d.Readdir(0)
-	if err != nil {
-		return err
-	}
-	for _, f := range fis {
-		filename := filepath.Join(reldir, f.Name())
-		if needsHashing(f, slice, dir, filename) {
+	if err := foreachFileInDir(dir, func(fi os.FileInfo) error {
+		filename := filepath.Join(reldir, fi.Name())
+		if needsHashing(fi, slice, dir, filename) {
+			//fmt.Println("HASH ", filename)
 			if err := HashFile(basedir, filename, slice); err != nil {
 				return err
 			}
-		}
-	}
-	if recursive {
-		for _, f := range fis {
-			if f.IsDir() && f.Name() != SlicesyncDir {
-				if err := hashDir(basedir, filepath.Join(reldir, f.Name()), slice, recursive); err != nil {
-					return err
-				}
+		} else if recursive && fi.IsDir() && fi.Name() != SlicesyncDir {
+			if err := hashDir(basedir, filepath.Join(reldir, fi.Name()), slice, recursive); err != nil {
+				return err
 			}
 		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// foreachFileInDir invokes func fn on each file (or directory) within directory dir
+func foreachFileInDir(dir string, fn func(fi os.FileInfo) error) (e error) {
+	d, e := os.Open(dir)
+	if e != nil {
+		return e
+	}
+	defer d.Close()
+	for fis, e := d.Readdir(nfiles); e == nil && len(fis) > 0; fis, e = d.Readdir(nfiles) {
+		for _, fi := range fis {
+			if e = fn(fi); e != nil {
+				return e
+			}
+		}
+	}
+	if e != io.EOF {
+		return
 	}
 	return nil
 }
@@ -101,7 +130,7 @@ func hashDir(basedir, reldir string, slice int64, recursive bool) error {
 // (File Hashing algorithm is usually different from )
 func HashFile(basedir, filename string, slice int64) (err error) {
 	tmpFile := tmpSlicesyncFile(basedir, filename)
-	hashFile := slicesyncFile(basedir, filename)
+	hashFile := SlicesyncFile(basedir, filename)
 	done := false
 	if slice <= 0 { // protection against infinite loop by bad arguments
 		slice = MiB
@@ -143,7 +172,7 @@ func (hnd *LocalHashNDump) Hash(filename string) (rc io.ReadCloser, err error) {
 	}()
 	f, err := os.Lstat(filename)
 	autopanic(err)
-	hfile := slicesyncFile(hnd.Dir, filename)
+	hfile := SlicesyncFile(hnd.Dir, filename)
 	if !isHashFileValid(f, hfile) {
 		return nil, fmt.Errorf("Hash dump (file %v) not valid for %v at %v!\n", hfile, filename, hnd.Dir)
 	}
@@ -197,7 +226,7 @@ func hashDump(w io.Writer, file io.ReadCloser, filename string, slice, size int6
 // needHashing returns true ONLY if there isn't a hash for filename at basedir
 func needsHashing(f os.FileInfo, slice int64, basedir, filename string) bool {
 	if !f.IsDir() && f.Size() > slice {
-		return !isHashFileValid(f, slicesyncFile(basedir, filename))
+		return !isHashFileValid(f, SlicesyncFile(basedir, filename))
 	}
 	return false
 }
@@ -206,6 +235,15 @@ func needsHashing(f os.FileInfo, slice int64, basedir, filename string) bool {
 func isHashFileValid(f os.FileInfo, hfilename string) bool {
 	hdump, err := os.Lstat(hfilename)
 	return err == nil && hdump != nil && !hdump.ModTime().Before(f.ModTime())
+}
+
+// IsHashFileValid returns true if there is a valid hash dump (.slicesync) file for the given filename at basedir
+func IsHashFileValid(basedir, filename string) bool {
+	fi, err := os.Lstat(filename)
+	if err != nil {
+		return false
+	}
+	return isHashFileValid(fi, SlicesyncFile(basedir, filename))
 }
 
 // Dump opens a file to read just a slice of it
@@ -264,17 +302,22 @@ func sliceFile(file *os.File, max, offset, slice int64) int64 {
 
 // tmpSlicesyncFile returns the corresponding temporary .tmp.slicesync file for filename
 func tmpSlicesyncFile(basedir, filename string) string {
-	return filepath.Join(slicesyncDir(basedir, filename), filepath.Base(filename)+TmpSliceSyncExt)
+	return filepath.Join(slicesyncDir(basedir, filepath.Dir(filename)), filepath.Base(filename)+TmpSliceSyncExt)
 }
 
-// slicesyncFile returns the corresponding .slicesync file for filename
-func slicesyncFile(basedir, filename string) string {
-	return filepath.Join(slicesyncDir(basedir, filename), filepath.Base(filename)+SliceSyncExt)
+// SlicesyncFile returns the corresponding .slicesync file for filename
+func SlicesyncFile(basedir, filename string) string {
+	return filepath.Join(slicesyncDir(basedir, filepath.Dir(filename)), filepath.Base(filename)+SliceSyncExt)
 }
 
-// slicesyncDir returns the .slicesync based directory location of a given file
-func slicesyncDir(basedir, filename string) string {
-	return filepath.Join(basedir, SlicesyncDir, filepath.Dir(filename))
+// slicesyncDir returns the .slicesync based directory location of a given directory
+func slicesyncDir(basedir, dir string) string {
+	return filepath.Join(basedir, SlicesyncDir, dir)
+}
+
+// file4slicesync returns the file or directory that corresponds to this slicesync file
+func file4slicesync(filename string) string {
+	return strings.Replace(strings.Replace(filename, SlicesyncDir+"/", "", -1), SliceSyncExt, "", 1)
 }
 
 // mkdirs4File ensures filename's dir is make if it needs to be

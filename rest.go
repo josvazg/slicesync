@@ -12,30 +12,38 @@ import (
 
 // -- Server Side --
 
-// ServeHashNDump runs an HTTP Server to download Hashes and slice Dumps slices of files remotely
-func ServeHashNDump(port int, dir, prefix string) {
+// SetupHashNDumpServer prepares a Handler for a HashNDumpServer
+func SetupHashNDumpServer(dir, prefix string) http.Handler {
 	if !strings.HasSuffix(prefix, "/") {
 		prefix = "/" + prefix
 	}
 	if !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
-	addr := fmt.Sprintf(":%v", port)
 	//fmt.Println("prefix:", prefix)
 	smux := http.NewServeMux()
 	smux.HandleFunc("/favicon.ico", http.NotFound)
-	smux.Handle(prefix, http.StripPrefix(prefix, http.FileServer(http.Dir(dir))))
+	smux.Handle(prefix, filter(http.StripPrefix(prefix, http.FileServer(http.Dir(dir)))))
 	//fmt.Printf("smux=%#v\n", smux)
-	srv := &http.Server{Addr: addr, Handler: smux}
-	srv.ListenAndServe()
+	return smux
 }
-/*
+
+// NewHashNDumpServer creates a new NewHashNDumpServer with the setup from SetupHashNDumpServer(dir,prefix)
+func NewHashNDumpServer(port int, dir, prefix string) *http.Server {
+	return &http.Server{Addr: fmt.Sprintf(":%v", port), Handler: SetupHashNDumpServer(dir, prefix)}
+}
+
+// ServeHashNDump runs an HTTP Server created from NewHashNDumpServer to download Hashes and slice Dumps slices of files
+func ServeHashNDump(port int, dir, prefix string) {
+	NewHashNDumpServer(port, dir, prefix).ListenAndServe()
+}
+
 func filter(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("url=", r.URL)
+		//fmt.Println("url=", r.URL)
 		h.ServeHTTP(w, r)
 	})
-}*/
+}
 
 // -- Client Side --
 
@@ -46,13 +54,13 @@ type RemoteHashNDump struct {
 
 // Hash returns the remote stream of hash slices
 func (rhnd *RemoteHashNDump) Hash(filename string) (io.ReadCloser, error) {
-	r, _, e := get(hashUrl(rhnd.Server, filename), 0, 0)
+	r, _, e := get(calcUrl(rhnd.Server, SlicesyncFile(".", filename)), 0, 0)
 	return r, e
 }
 
 // Dump returns the contents of a remote slice of the file (or the full file)
 func (rhnd *RemoteHashNDump) Dump(filename string, pos, slice int64) (io.ReadCloser, int64, error) {
-	rc, r, err := get(dumpUrl(rhnd.Server, filename), pos, slice)
+	rc, r, err := get(calcUrl(rhnd.Server, filename), pos, slice)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -85,7 +93,7 @@ func Probe(probedUrl string) (server, filename string, err error) {
 		return
 	}
 	for candidate := path.Dir(fullpath); len(candidate) > 0 && candidate != "/"; candidate = path.Dir(candidate) {
-		u.Path = path.Join(candidate, "/", SlicesyncDir, "/")
+		u.Path = path.Join(candidate, "/", SlicesyncDir)
 		//fmt.Println("Testing ", u.String())
 		err = head(u.String() + "/")
 		if err == nil {
@@ -136,12 +144,7 @@ func get(url string, pos, slice int64) (io.ReadCloser, *http.Response, error) {
 	return resp.Body, resp, nil
 }
 
-// dumpUrl returns the Url for the remote url file
-func dumpUrl(server, filename string) string {
+// calcUrl returns the Url for the remote file
+func calcUrl(server, filename string) string {
 	return fmt.Sprintf("%s%s", server, filename)
-}
-
-// hashUrl returns the Url for the hash dump of remote url file
-func hashUrl(server, filename string) string {
-	return fmt.Sprintf("%s%s%s%s", server, SlicesyncDir, filename, SliceSyncExt)
 }
